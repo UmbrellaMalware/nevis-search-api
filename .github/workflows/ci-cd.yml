@@ -1,9 +1,36 @@
 name: CI/CD
 
+# Runs only when something that affects the image or its deployment changes;
+# docs-only commits (README etc.) are skipped. Use "Run workflow" to redeploy manually.
 on:
   push:
     branches: [main]
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose*.yml"
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose*.yml"
+      - ".github/workflows/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,7 +66,7 @@ jobs:
   build:
     name: Build and push image
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
