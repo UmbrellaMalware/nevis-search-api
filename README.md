@@ -36,3 +36,18 @@ docker compose up --build
 ```bash
 docker compose --profile test run --rm tests
 ```
+
+## CI/CD
+
+`.github/workflows/ci-cd.yml`:
+
+1. **test** (every push and PR): builds the `test` image and runs `ruff`, `mypy` and `pytest`
+   against a real pgvector database.
+2. **build** (`main` only): builds the `runtime` image and pushes it to GHCR, tagged with the
+   commit SHA and `latest`.
+3. **deploy** (`main` only): copies the compose files to the server over SSH, pulls the exact
+   image that passed the tests, restarts the stack (migrations run first via the `migrate`
+   service) and fails the job if `/health` does not come up.
+
+Rollback = re-run the deploy job of an earlier commit. Runtime secrets (`API_KEY`,
+`POSTGRES_PASSWORD`, `OPENAI_API_KEY`) live only in `.env` on the server.

@@ -1,0 +1,13 @@
+# Production override: run the image built and tested by CI instead of building locally.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env --env-file .image.env up -d --no-build
+# IMAGE / IMAGE_TAG are written to .image.env by the deploy job.
+services:
+  migrate:
+    image: ${IMAGE:?IMAGE is not set}:${IMAGE_TAG:?IMAGE_TAG is not set}
+
+  api:
+    image: ${IMAGE}:${IMAGE_TAG}
+    restart: unless-stopped
+
+  db:
+    restart: unless-stopped

@@ -55,6 +55,7 @@ services:
       retries: 15
 
   tests:
+    image: nevis-search-api-tests
     build:
       context: .
       target: test
