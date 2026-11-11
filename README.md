@@ -106,8 +106,9 @@ Takeaways:
 - **It only fires on the wording it contains.** On held-out paraphrases of the same concepts it
   does nothing, and every model is weak there (R@5 0.25-0.41; OpenAI `3-large` is the least
   weak). So the glossary's value in production depends on how often advisors use its terms;
-  it has to be grown from real queries (cheap: one `INSERT` per new wording), or matched
-  semantically rather than by exact words (see below).
+  it has to be grown from real queries (cheap: one `INSERT` per new wording), or its terms
+  matched semantically (embed the terms, fire when the query is close to one) rather than by
+  exact words.
 - **Model choice matters for general finance queries, but less.** OpenAI `3-large` ranks best
   there (0.99), the finance-tuned `empire-embed` beats MiniLM slightly (0.95 vs 0.92), and the
   rest are close. That edge does not survive thresholding: OpenAI's similarities separate matches
