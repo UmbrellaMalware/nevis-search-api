@@ -42,7 +42,7 @@ async def _clean_tables() -> AsyncIterator[None]:
     yield
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE clients, documents, document_chunks CASCADE"))
+        await conn.execute(text("TRUNCATE clients, documents, document_search_chunks CASCADE"))
     await engine.dispose()
 
 

@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Client, Document, DocumentChunk
+from app.models import Client, Document, DocumentSearchChunk
 from app.schemas import DocumentCreate
 from app.services.chunking import chunk_text
 from app.services.embeddings import Embedder
@@ -32,8 +32,8 @@ async def create_document(
         client_id=client_id,
         title=data.title,
         content=data.content,
-        chunks=[
-            DocumentChunk(chunk_index=i, content=piece, embedding=vector)
+        search_chunks=[
+            DocumentSearchChunk(chunk_index=i, content=piece, embedding=vector)
             for i, (piece, vector) in enumerate(zip(pieces, vectors, strict=True))
         ],
     )

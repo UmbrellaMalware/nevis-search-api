@@ -84,7 +84,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "document_chunks",
+        "document_search_chunks",
         sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column(
             "document_id",
@@ -95,17 +95,21 @@ def upgrade() -> None:
         sa.Column("chunk_index", sa.Integer(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("embedding", Vector(EMBEDDING_DIM), nullable=False),
-        sa.UniqueConstraint("document_id", "chunk_index", name="uq_document_chunks_position"),
+        sa.UniqueConstraint(
+            "document_id", "chunk_index", name="uq_document_search_chunks_position"
+        ),
     )
-    op.create_index("ix_document_chunks_document_id", "document_chunks", ["document_id"])
+    op.create_index(
+        "ix_document_search_chunks_document_id", "document_search_chunks", ["document_id"]
+    )
     op.execute(
-        "CREATE INDEX ix_document_chunks_embedding ON document_chunks "
+        "CREATE INDEX ix_document_search_chunks_embedding ON document_search_chunks "
         "USING hnsw (embedding vector_cosine_ops)"
     )
 
 
 def downgrade() -> None:
-    op.drop_table("document_chunks")
+    op.drop_table("document_search_chunks")
     op.drop_table("documents")
     op.drop_table("clients")
     op.execute("DROP TYPE IF EXISTS summary_status")

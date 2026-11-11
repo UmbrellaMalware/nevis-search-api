@@ -72,19 +72,22 @@ class Document(Base):
     summary_error: Mapped[str | None]
 
     client: Mapped[Client] = relationship(back_populates="documents", lazy="raise")
-    chunks: Mapped[list[DocumentChunk]] = relationship(
+    search_chunks: Mapped[list[DocumentSearchChunk]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
         passive_deletes=True,
         lazy="raise",
-        order_by="DocumentChunk.chunk_index",
+        order_by="DocumentSearchChunk.chunk_index",
     )
 
 
-class DocumentChunk(Base):
-    """A slice of a document's content with its embedding (the unit of semantic search)."""
+class DocumentSearchChunk(Base):
+    """A slice of a document's content with its embedding: the unit of document search.
 
-    __tablename__ = "document_chunks"
+    Derived data: it can always be rebuilt from `documents.content` (e.g. after a model change).
+    """
+
+    __tablename__ = "document_search_chunks"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -94,4 +97,4 @@ class DocumentChunk(Base):
     content: Mapped[str]
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
 
-    document: Mapped[Document] = relationship(back_populates="chunks", lazy="raise")
+    document: Mapped[Document] = relationship(back_populates="search_chunks", lazy="raise")

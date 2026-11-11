@@ -37,7 +37,7 @@ async def test_long_document_is_chunked_and_embedded(
         rows = (
             await conn.execute(
                 text(
-                    "SELECT chunk_index, vector_dims(embedding) FROM document_chunks "
+                    "SELECT chunk_index, vector_dims(embedding) FROM document_search_chunks "
                     "WHERE document_id = :id ORDER BY chunk_index"
                 ),
                 {"id": response.json()["id"]},
