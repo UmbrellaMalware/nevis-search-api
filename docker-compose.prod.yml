@@ -1,13 +1,47 @@
-# Production override: run the image built and tested by CI instead of building locally.
+# Production override: run the image built and tested by CI behind Traefik (HTTPS).
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env --env-file .image.env up -d --no-build
-# IMAGE / IMAGE_TAG are written to .image.env by the deploy job.
+# IMAGE / IMAGE_TAG are written to .image.env by the deploy job; DOMAIN lives in .env.
 services:
+  traefik:
+    image: traefik:v3.7
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+
   migrate:
     image: ${IMAGE:?IMAGE is not set}:${IMAGE_TAG:?IMAGE_TAG is not set}
 
   api:
     image: ${IMAGE}:${IMAGE_TAG}
     restart: unless-stopped
+    # Only reachable through Traefik; the direct :8000 port from the base file is removed.
+    ports: !reset []
+    environment:
+      # Trust X-Forwarded-* from Traefik so the app sees the original https scheme.
+      FORWARDED_ALLOW_IPS: "*"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`${DOMAIN:?DOMAIN is not set}`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=8000
 
   db:
     restart: unless-stopped
+
+volumes:
+  letsencrypt:
