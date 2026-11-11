@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+    # Search tuning. The similarity floor was calibrated for all-MiniLM-L6-v2: relevant matches
+    # score ~0.4-0.7, unrelated queries stay below ~0.3 (see README, "Search quality").
+    search_min_similarity: float = 0.35
+    search_result_limit: int = 20
+
 
 @lru_cache
 def get_settings() -> Settings:

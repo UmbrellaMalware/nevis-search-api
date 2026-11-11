@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api import clients, health
+from app.api import clients, health, search
 from app.config import get_settings
 from app.db import create_engine
 from app.services.embeddings import load_embedder
@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(clients.router)
+    app.include_router(search.router)
     return app
 
 

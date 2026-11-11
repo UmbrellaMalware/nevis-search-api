@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Annotated
+from enum import StrEnum
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
@@ -59,3 +60,43 @@ class DocumentOut(BaseModel):
     created_at: datetime
     summary_status: SummaryStatus
     summary: str | None
+
+
+# --- Search ---------------------------------------------------------------------------------
+
+
+class MatchType(StrEnum):
+    LEXICAL = "lexical"  # substring / fuzzy match on client email, name or description
+    SEMANTIC = "semantic"  # Sentence-BERT similarity (optionally via a glossary synonym)
+    FULL_TEXT = "full_text"  # Postgres full-text match on document content
+
+
+class DocumentBrief(BaseModel):
+    """A document as shown in search results: everything except the (potentially large) content."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    client_id: uuid.UUID
+    title: str
+    created_at: datetime
+    summary_status: SummaryStatus
+    summary: str | None
+
+
+class ClientSearchHit(BaseModel):
+    type: Literal["client"] = "client"
+    score: float = Field(description="Relevance (Reciprocal Rank Fusion); higher is better.")
+    matched_by: list[MatchType]
+    client: ClientOut
+
+
+class DocumentSearchHit(BaseModel):
+    type: Literal["document"] = "document"
+    score: float = Field(description="Relevance (Reciprocal Rank Fusion); higher is better.")
+    matched_by: list[MatchType]
+    document: DocumentBrief
+    snippet: str = Field(description="The part of the document that matched the query.")
+
+
+SearchHit = Annotated[ClientSearchHit | DocumentSearchHit, Field(discriminator="type")]

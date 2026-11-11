@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Identity, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import BigInteger, Computed, DateTime, Enum, ForeignKey, Identity, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -96,5 +96,22 @@ class DocumentSearchChunk(Base):
     chunk_index: Mapped[int]
     content: Mapped[str]
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    # Full-text index of the chunk, maintained by Postgres (generated column).
+    search_tsv: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english', content)", persisted=True), deferred=True
+    )
 
     document: Mapped[Document] = relationship(back_populates="search_chunks", lazy="raise")
+
+
+class SearchSynonym(Base):
+    """Domain glossary for query expansion: a query containing `term` also searches `synonym`.
+
+    Terms and synonyms are stored lowercase, words separated by single spaces.
+    """
+
+    __tablename__ = "search_synonyms"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    term: Mapped[str]
+    synonym: Mapped[str]

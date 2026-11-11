@@ -31,3 +31,7 @@ async def test_valid_key_is_accepted(client: AsyncClient) -> None:
 async def test_health_and_docs_stay_public(client: AsyncClient) -> None:
     assert (await client.get("/health")).status_code == 200
     assert (await client.get("/openapi.json")).status_code == 200
+
+
+async def test_search_requires_key(client: AsyncClient) -> None:
+    assert (await client.get("/search", params={"q": "x"})).status_code == 401
