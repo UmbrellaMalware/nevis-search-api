@@ -11,8 +11,11 @@ Metrics (higher is better):
   F1       best F1 over all (query, document) pairs with ONE global similarity threshold,
            noise queries included: how well a threshold separates matches from non-matches,
            which is what the API does
-Ranking metrics are reported separately for queries whose concept is in the glossary and for
-the others, so the glossary's effect is visible beyond the concepts it was written for.
+Ranking metrics are reported per query group:
+  glossary  concepts in the glossary, worded with a glossary term (the glossary fires)
+  held-out  the same concepts, paraphrased without any glossary term (the glossary cannot fire):
+            shows how much of the gain depends on users hitting the glossary's exact wording
+  other     concepts the glossary does not cover at all
 
 Only the semantic retriever is measured; the API also runs full-text and lexical retrievers.
 
@@ -35,7 +38,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from benchmark_dataset import DOCS, GLOSSARY_QUERIES, NOISE_QUERIES, OTHER_QUERIES  # noqa: E402
+from benchmark_dataset import (  # noqa: E402
+    DOCS,
+    GLOSSARY_QUERIES,
+    HELDOUT_QUERIES,
+    NOISE_QUERIES,
+    OTHER_QUERIES,
+)
 
 from app.repositories.synonyms import normalize  # noqa: E402
 
@@ -47,6 +56,7 @@ LOCAL_MODELS = [
     "philschmid/bge-base-financial-matryoshka",
 ]
 OPENAI_MODELS = ["text-embedding-3-small", "text-embedding-3-large"]
+GROUPS = [("glossary", GLOSSARY_QUERIES), ("held-out", HELDOUT_QUERIES), ("other", OTHER_QUERIES)]
 
 
 def load_glossary() -> dict[str, list[str]]:
@@ -123,7 +133,7 @@ def evaluate(embed: Embed, use_glossary: bool) -> dict[str, float]:
     result: dict[str, float] = {}
     scores: list[float] = []
     labels: list[bool] = []
-    for group, queries in (("glossary", GLOSSARY_QUERIES), ("other", OTHER_QUERIES)):
+    for group, queries in GROUPS:
         rows = []
         for query, relevant in queries.items():
             sims = sims_for(query)
@@ -150,28 +160,24 @@ def main() -> None:
     if args.openai and os.environ.get("OPENAI_API_KEY"):
         setups += [(f"openai {n}", lambda n=n: openai_embedder(n)) for n in OPENAI_MODELS]
 
-    n_docs = len(DOCS)
-    n_queries = len(GLOSSARY_QUERIES) + len(OTHER_QUERIES)
-    print(
-        f"{n_docs} documents, {len(GLOSSARY_QUERIES)} glossary + {len(OTHER_QUERIES)} other "
-        f"queries, {len(NOISE_QUERIES)} noise queries ({n_queries} labelled)\n"
-    )
-    print(
-        "| setup | glossary queries R@5 / MRR / nDCG | other queries R@5 / MRR / nDCG "
-        "| F1 @ best threshold |"
-    )
-    print("|---|---|---|---|")
+    leaking = [q for q in HELDOUT_QUERIES if len(expand(q)) > 1]
+    assert not leaking, f"held-out queries must not trigger the glossary: {leaking}"
+
+    counts = ", ".join(f"{len(queries)} {group}" for group, queries in GROUPS)
+    print(f"{len(DOCS)} documents; queries: {counts}, {len(NOISE_QUERIES)} noise\n")
+    header = " | ".join(f"{group} R@5 / MRR / nDCG" for group, _ in GROUPS)
+    print(f"| setup | {header} | F1 @ best threshold |")
+    print("|---|" + "---|" * len(GROUPS) + "---|")
     for name, factory in setups:
         embed = factory()
         for use_glossary in (False, True):
             m = evaluate(embed, use_glossary)
             label = f"{name} + glossary" if use_glossary else name
-            print(
-                f"| {label} "
-                f"| {m['glossary_r5']:.2f} / {m['glossary_mrr']:.2f} / {m['glossary_ndcg']:.2f} "
-                f"| {m['other_r5']:.2f} / {m['other_mrr']:.2f} / {m['other_ndcg']:.2f} "
-                f"| {m['f1']:.2f} @ {m['threshold']:.2f} |"
+            cells = " | ".join(
+                f"{m[f'{g}_r5']:.2f} / {m[f'{g}_mrr']:.2f} / {m[f'{g}_ndcg']:.2f}"
+                for g, _ in GROUPS
             )
+            print(f"| {label} | {cells} | {m['f1']:.2f} @ {m['threshold']:.2f} |")
         del embed
         gc.collect()
 

@@ -71,21 +71,27 @@ setups handle this with [`scripts/benchmark_search.py`](scripts/benchmark_search
 hand-labelled wealth-advisor corpus ([`scripts/benchmark_dataset.py`](scripts/benchmark_dataset.py)):
 42 documents (KYC, income and source of funds, tax, investments, pensions, estate planning,
 insurance, plus unrelated distractors) written the way real documents read, i.e. a utility bill
-never says "proof of address"; 30 labelled queries, 7 of them about concepts in the glossary
-and 23 about concepts it does not know; 5 noise queries with no relevant document.
+never says "proof of address"; 38 labelled queries in three groups; 5 noise queries with no
+relevant document:
 
-| setup | glossary queries<br>R@5 / MRR / nDCG@10 | other queries<br>R@5 / MRR / nDCG@10 | F1 at best single threshold |
-|---|---|---|---|
-| `all-MiniLM-L6-v2` | 0.45 / 0.62 / 0.52 | 0.92 / 0.87 / 0.88 | 0.61 @ 0.35 |
-| **`all-MiniLM-L6-v2` + glossary** *(used)* | **0.85 / 0.90 / 0.86** | 0.92 / 0.87 / 0.88 | **0.79** @ 0.40 |
-| `WealthFromAI/empire-embed` | 0.41 / 0.52 / 0.49 | 0.95 / 0.92 / 0.92 | 0.60 @ 0.43 |
-| `WealthFromAI/empire-embed` + glossary | 0.85 / 0.90 / 0.83 | 0.95 / 0.92 / 0.92 | **0.79** @ 0.45 |
-| `philschmid/bge-base-financial-matryoshka` | 0.39 / 0.53 / 0.44 | 0.90 / 0.91 / 0.90 | 0.54 @ 0.33 |
-| `philschmid/bge-base-financial-matryoshka` + glossary | 0.79 / 0.93 / 0.85 | 0.90 / 0.91 / 0.90 | 0.73 @ 0.42 |
-| OpenAI `text-embedding-3-small` | 0.47 / 0.50 / 0.47 | 0.97 / 0.93 / 0.94 | 0.51 @ 0.36 |
-| OpenAI `text-embedding-3-small` + glossary | 0.85 / 0.90 / 0.83 | 0.97 / 0.93 / 0.94 | 0.74 @ 0.40 |
-| OpenAI `text-embedding-3-large` | 0.41 / 0.55 / 0.56 | **0.99 / 1.00 / 0.99** | 0.59 @ 0.32 |
-| OpenAI `text-embedding-3-large` + glossary | 0.85 / 0.90 / 0.87 | **0.99 / 1.00 / 0.99** | 0.75 @ 0.37 |
+- **glossary** (7): KYC concepts worded with a glossary term (`address proof`, `photo id`, ...);
+- **held-out** (8): the *same* concepts paraphrased so that no glossary term appears
+  (`evidence of residence`, `where does the client's money come from`, ...), i.e. the glossary
+  cannot fire; this guards against grading the glossary on the very wording it was written for;
+- **other** (23): finance concepts the glossary does not cover (`pension`, `estate planning`, ...).
+
+| setup | glossary<br>R@5 / MRR / nDCG@10 | held-out<br>R@5 / MRR / nDCG@10 | other<br>R@5 / MRR / nDCG@10 | F1 at best single threshold |
+|---|---|---|---|---|
+| `all-MiniLM-L6-v2` | 0.45 / 0.62 / 0.52 | 0.26 / 0.43 / 0.41 | 0.92 / 0.87 / 0.88 | 0.49 @ 0.35 |
+| **`all-MiniLM-L6-v2` + glossary** *(used)* | **0.85 / 0.90 / 0.86** | 0.26 / 0.43 / 0.41 | 0.92 / 0.87 / 0.88 | **0.63** @ 0.35 |
+| `WealthFromAI/empire-embed` | 0.41 / 0.52 / 0.49 | 0.26 / 0.43 / 0.41 | 0.95 / 0.92 / 0.92 | 0.48 @ 0.39 |
+| `WealthFromAI/empire-embed` + glossary | 0.85 / 0.90 / 0.83 | 0.26 / 0.43 / 0.41 | 0.95 / 0.92 / 0.92 | **0.63** @ 0.43 |
+| `philschmid/bge-base-financial-matryoshka` | 0.39 / 0.53 / 0.44 | 0.25 / 0.47 / 0.38 | 0.90 / 0.91 / 0.90 | 0.43 @ 0.33 |
+| `philschmid/bge-base-financial-matryoshka` + glossary | 0.79 / 0.93 / 0.85 | 0.25 / 0.47 / 0.38 | 0.90 / 0.91 / 0.90 | 0.55 @ 0.39 |
+| OpenAI `text-embedding-3-small` | 0.47 / 0.50 / 0.47 | 0.37 / 0.45 / 0.39 | 0.97 / 0.93 / 0.94 | 0.40 @ 0.36 |
+| OpenAI `text-embedding-3-small` + glossary | 0.85 / 0.90 / 0.83 | 0.37 / 0.45 / 0.39 | 0.97 / 0.93 / 0.94 | 0.58 @ 0.40 |
+| OpenAI `text-embedding-3-large` | 0.44 / 0.56 / 0.56 | **0.41 / 0.57 / 0.52** | **0.99 / 1.00 / 0.99** | 0.50 @ 0.32 |
+| OpenAI `text-embedding-3-large` + glossary | 0.85 / 0.90 / 0.87 | **0.41 / 0.57 / 0.52** | **0.99 / 1.00 / 0.99** | 0.61 @ 0.36 |
 
 R@5 is recall in the top 5, MRR the reciprocal rank of the first relevant document, nDCG@10 the
 ranking quality of the top 10. F1 is computed over all (query, document) pairs, noise queries
@@ -94,27 +100,32 @@ actually does, i.e. keep everything above a threshold.
 
 Takeaways:
 
-- **The glossary is the biggest lever.** On KYC concepts every model, including OpenAI's, is
-  weak on its own (R@5 0.39-0.47); with the glossary all of them reach ~0.85. It has no effect on
-  queries it does not cover (identical numbers), so it does not hurt them.
+- **The glossary is the biggest lever, when it fires.** On KYC concepts every model, including
+  OpenAI's, is weak on its own (R@5 0.39-0.47); with the glossary all of them reach ~0.85. It
+  has no effect on queries it does not cover (identical numbers), so it does not hurt them.
+- **It only fires on the wording it contains.** On held-out paraphrases of the same concepts it
+  does nothing, and every model is weak there (R@5 0.25-0.41; OpenAI `3-large` is the least
+  weak). So the glossary's value in production depends on how often advisors use its terms;
+  it has to be grown from real queries (cheap: one `INSERT` per new wording), or matched
+  semantically rather than by exact words (see below).
 - **Model choice matters for general finance queries, but less.** OpenAI `3-large` ranks best
   there (0.99), the finance-tuned `empire-embed` beats MiniLM slightly (0.95 vs 0.92), and the
   rest are close. That edge does not survive thresholding: OpenAI's similarities separate matches
-  from non-matches *worse* (F1 0.74-0.75 vs 0.79), and it adds latency, cost and an external
+  from non-matches no better (F1 0.58-0.61 vs 0.63), and it adds latency, cost and an external
   dependency per query.
 - **MiniLM + glossary is the best fit for this deployment:** top F1 together with
   `empire-embed`, Apache-2.0 licence (`empire-embed` declares none), ~90 MB, fast on a 2-vCPU
-  CPU-only server. The F1-optimal threshold for it is 0.40, close to the 0.35 the API uses.
+  CPU-only server. Its F1-optimal threshold is 0.35, the value the API uses.
 - I also tried larger general models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`), cross-encoder
   re-rankers and more finance-tuned models (`fin-mpnet-base`, `finance-embeddings-investopedia`,
   `snowflake-arctic-embed-financial`, `modernbert-embed-finance`, `finance-gemma-300m-emb`, ...)
   on an earlier, smaller version of this corpus: none of them solved the KYC concepts, several
   were worse than MiniLM, and the strongest need more RAM or a GPU than the server has. I found
   no public KYC/AML-specific embedding model.
-- **Caveats:** the corpus and labels are mine and small, so differences of a few points are
-  within noise; glossary queries contain glossary terms by construction, so their scores show
-  what the glossary *can* do, not how often real queries will hit it. A production evaluation
-  needs real, anonymised advisor queries.
+- **Caveats:** the corpus, the queries and the labels are mine and small, so differences of a
+  few points are within noise, and I also wrote the glossary (the held-out group exists to
+  limit that bias). A production evaluation needs real, anonymised advisor queries and labels
+  from someone other than the glossary's author.
 
 The glossary lives in the database (`search_synonyms`: `term -> synonym`, lowercase), seeded
 with KYC / wealth-management concepts by migration `0002`, and can be extended without a deploy:

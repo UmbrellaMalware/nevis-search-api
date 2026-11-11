@@ -219,6 +219,20 @@ GLOSSARY_QUERIES: dict[str, set[str]] = {
     "proof of income": {"payslip", "employment_contract", "dividend", "tax_return"},
 }
 
+# Held-out paraphrases: the SAME concepts as GLOSSARY_QUERIES, worded so that no glossary term
+# appears in them. The glossary does not fire here, which shows how it does on wordings it was
+# not written for (the benchmark asserts that none of these trigger an expansion).
+HELDOUT_QUERIES: dict[str, set[str]] = {
+    "documents confirming where the client lives": GLOSSARY_QUERIES["address proof"],
+    "evidence of residence": GLOSSARY_QUERIES["address proof"],
+    "verify client home address": GLOSSARY_QUERIES["address proof"],
+    "verify who the client is": GLOSSARY_QUERIES["identity document"],
+    "government issued photo identification": GLOSSARY_QUERIES["identity document"],
+    "where does the client's money come from": GLOSSARY_QUERIES["source of funds"],
+    "how did the client become wealthy": GLOSSARY_QUERIES["source of wealth"],
+    "evidence of earnings": GLOSSARY_QUERIES["proof of income"],
+}
+
 # Concepts the glossary knows nothing about.
 OTHER_QUERIES: dict[str, set[str]] = {
     "retirement savings": {"pension", "sipp", "isa"},
