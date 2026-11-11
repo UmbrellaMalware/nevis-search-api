@@ -108,6 +108,16 @@ with KYC / wealth-management concepts by migration `0002`, and can be extended w
 INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electricity bill');
 ```
 
+**For Nevis specifically**, advisors search mostly financial content (portfolios, statements,
+tax, investment proposals), with KYC/onboarding documents as one important slice. So the model I
+would aim for is a finance-tuned base fine-tuned further on KYC pairs: start from a financial
+embedding model (in my runs `philschmid/bge-base-financial-matryoshka` was the most balanced:
+best gaps on `investment strategy` / `taxes` among the finance models, low noise) and fine-tune
+it on labelled advisor queries and documents that cover both the financial and the KYC
+vocabulary, so it learns "address proof -> utility bill" without forgetting the financial domain
+(mixing the two kinds of pairs in training avoids that). Until such labelled data exists, the
+glossary is the safe, explainable bridge, and it stays useful afterwards for brand-new terms.
+
 With more resources or budget, I would consider: fine-tuning the bi-encoder (and a cross-encoder
 re-ranker) on labelled KYC query/document pairs with `MultipleNegativesRankingLoss`, the
 retrieve-and-re-rank approach described in
