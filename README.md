@@ -66,40 +66,55 @@ query such as `weather forecast` returns an empty list instead of "the least bad
 ## Search quality: the embedding trade-off
 
 The assignment's example, `address proof` -> a document containing `utility bill`, needs domain
-knowledge (in KYC a utility bill *is* a proof of address). A small local model does not have it.
-I measured this with [`scripts/benchmark_search.py`](scripts/benchmark_search.py) on a small
-KYC-style corpus. **Gap** = similarity of the weakest relevant document minus that of the
-strongest irrelevant one; a positive gap means one threshold separates them.
+knowledge (in KYC a utility bill *is* a proof of address). I measured how different embedding
+setups handle this with [`scripts/benchmark_search.py`](scripts/benchmark_search.py) on a
+hand-labelled wealth-advisor corpus ([`scripts/benchmark_dataset.py`](scripts/benchmark_dataset.py)):
+42 documents (KYC, income and source of funds, tax, investments, pensions, estate planning,
+insurance, plus unrelated distractors) written the way real documents read, i.e. a utility bill
+never says "proof of address"; 30 labelled queries, 7 of them about concepts in the glossary
+and 23 about concepts it does not know; 5 noise queries with no relevant document.
 
-| setup | address proof | identity document | source of funds | investment strategy | taxes | max noise |
-|---|---|---|---|---|---|---|
-| local `all-MiniLM-L6-v2` | **-0.04** (utility bill ranked 4th) | +0.25 | **-0.01** | +0.12 | +0.17 | 0.11 |
-| local + glossary *(used)* | **+0.34** | +0.30 | +0.15 | +0.12 | +0.17 | 0.11 |
-| OpenAI `text-embedding-3-small` | **-0.02** (utility bill 1st, lease 4th) | +0.17 | **-0.08** | +0.16 | +0.16 | 0.18 |
-| OpenAI `text-embedding-3-large` | **-0.02** (utility bill 1st, lease 4th) | +0.18 | **-0.08** | +0.20 | +0.12 | 0.20 |
+| setup | glossary queries<br>R@5 / MRR / nDCG@10 | other queries<br>R@5 / MRR / nDCG@10 | F1 at best single threshold |
+|---|---|---|---|
+| `all-MiniLM-L6-v2` | 0.45 / 0.62 / 0.52 | 0.92 / 0.87 / 0.88 | 0.61 @ 0.35 |
+| **`all-MiniLM-L6-v2` + glossary** *(used)* | **0.85 / 0.90 / 0.86** | 0.92 / 0.87 / 0.88 | **0.79** @ 0.40 |
+| `WealthFromAI/empire-embed` | 0.41 / 0.52 / 0.49 | 0.95 / 0.92 / 0.92 | 0.60 @ 0.43 |
+| `WealthFromAI/empire-embed` + glossary | 0.85 / 0.90 / 0.83 | 0.95 / 0.92 / 0.92 | **0.79** @ 0.45 |
+| `philschmid/bge-base-financial-matryoshka` | 0.39 / 0.53 / 0.44 | 0.90 / 0.91 / 0.90 | 0.54 @ 0.33 |
+| `philschmid/bge-base-financial-matryoshka` + glossary | 0.79 / 0.93 / 0.85 | 0.90 / 0.91 / 0.90 | 0.73 @ 0.42 |
+| OpenAI `text-embedding-3-small` | 0.47 / 0.50 / 0.47 | 0.97 / 0.93 / 0.94 | 0.51 @ 0.36 |
+| OpenAI `text-embedding-3-small` + glossary | 0.85 / 0.90 / 0.83 | 0.97 / 0.93 / 0.94 | 0.74 @ 0.40 |
+| OpenAI `text-embedding-3-large` | 0.41 / 0.55 / 0.56 | **0.99 / 1.00 / 0.99** | 0.59 @ 0.32 |
+| OpenAI `text-embedding-3-large` + glossary | 0.85 / 0.90 / 0.87 | **0.99 / 1.00 / 0.99** | 0.75 @ 0.37 |
+
+R@5 is recall in the top 5, MRR the reciprocal rank of the first relevant document, nDCG@10 the
+ranking quality of the top 10. F1 is computed over all (query, document) pairs, noise queries
+included, at the one global similarity threshold that maximises it: it measures what the API
+actually does, i.e. keep everything above a threshold.
 
 Takeaways:
 
-- **The local model alone is too weak** for domain concepts: a utility bill scores below a
-  passport for `address proof`. Larger open models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`) and
-  cross-encoder re-rankers did not fix this in my tests either, and the stronger ones need more
-  RAM or a GPU than the 2-vCPU / 4 GB server has.
-- **Finance-tuned open models do not help either.** I also ran `mukaj/fin-mpnet-base`,
-  `FinLang/finance-embeddings-investopedia`, `philschmid/bge-base-financial-matryoshka`,
-  `baconnier/Finance2_embedding_small_en-V1.5` and `hassaangyt/compliance-emb-v1`: all of them
-  fail `address proof` and `source of funds` (gaps from -0.02 to -0.19), and some get worse on
-  queries MiniLM handles (`fin-mpnet-base` fails `investment strategy`; the Investopedia model
-  gives the `weather forecast` noise query a 0.51 similarity). They are trained on market and
-  investing text (filings, financial Q&A), not on KYC/onboarding vocabulary.
-- **Hosted embeddings help, but do not solve it.** OpenAI puts the utility bill first, but other
-  valid proofs of address (bank statement, tenancy agreement) still rank below irrelevant
-  documents, so no threshold works for every query. They also add per-query latency, cost and an
-  external dependency.
-- **A domain glossary closes the gap cheaply.** The query is expanded with synonyms and a
-  document's score is its best similarity to the query or any synonym. It is deterministic,
-  explainable and fast. The cost is coverage: only concepts in the glossary benefit, and an
-  expansion can pull in a near miss (for `source of funds` a tenancy agreement scores 0.47 via
-  "sale agreement").
+- **The glossary is the biggest lever.** On KYC concepts every model, including OpenAI's, is
+  weak on its own (R@5 0.39-0.47); with the glossary all of them reach ~0.85. It has no effect on
+  queries it does not cover (identical numbers), so it does not hurt them.
+- **Model choice matters for general finance queries, but less.** OpenAI `3-large` ranks best
+  there (0.99), the finance-tuned `empire-embed` beats MiniLM slightly (0.95 vs 0.92), and the
+  rest are close. That edge does not survive thresholding: OpenAI's similarities separate matches
+  from non-matches *worse* (F1 0.74-0.75 vs 0.79), and it adds latency, cost and an external
+  dependency per query.
+- **MiniLM + glossary is the best fit for this deployment:** top F1 together with
+  `empire-embed`, Apache-2.0 licence (`empire-embed` declares none), ~90 MB, fast on a 2-vCPU
+  CPU-only server. The F1-optimal threshold for it is 0.40, close to the 0.35 the API uses.
+- I also tried larger general models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`), cross-encoder
+  re-rankers and more finance-tuned models (`fin-mpnet-base`, `finance-embeddings-investopedia`,
+  `snowflake-arctic-embed-financial`, `modernbert-embed-finance`, `finance-gemma-300m-emb`, ...)
+  on an earlier, smaller version of this corpus: none of them solved the KYC concepts, several
+  were worse than MiniLM, and the strongest need more RAM or a GPU than the server has. I found
+  no public KYC/AML-specific embedding model.
+- **Caveats:** the corpus and labels are mine and small, so differences of a few points are
+  within noise; glossary queries contain glossary terms by construction, so their scores show
+  what the glossary *can* do, not how often real queries will hit it. A production evaluation
+  needs real, anonymised advisor queries.
 
 The glossary lives in the database (`search_synonyms`: `term -> synonym`, lowercase), seeded
 with KYC / wealth-management concepts by migration `0002`, and can be extended without a deploy:
@@ -111,8 +126,9 @@ INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electri
 **For Nevis specifically**, advisors search mostly financial content (portfolios, statements,
 tax, investment proposals), with KYC/onboarding documents as one important slice. So the model I
 would aim for is a finance-tuned base fine-tuned further on KYC pairs: start from a financial
-embedding model (in my runs `philschmid/bge-base-financial-matryoshka` was the most balanced:
-best gaps on `investment strategy` / `taxes` among the finance models, low noise) and fine-tune
+embedding model (in my runs `WealthFromAI/empire-embed`, a finance-tuned MiniLM, did best, but
+its licence would need clarifying first; `philschmid/bge-base-financial-matryoshka` is a
+documented alternative) and fine-tune
 it on labelled advisor queries and documents that cover both the financial and the KYC
 vocabulary, so it learns "address proof -> utility bill" without forgetting the financial domain
 (mixing the two kinds of pairs in training avoids that). Until such labelled data exists, the

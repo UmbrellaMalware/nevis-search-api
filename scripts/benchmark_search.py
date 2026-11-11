@@ -1,115 +1,179 @@
-"""Compare semantic-search quality of embedding setups on a small KYC-style corpus.
+"""Benchmark semantic search setups on a hand-labelled wealth-advisor corpus.
 
-Modes:
-  local          - all-MiniLM-L6-v2, query embedded as is
-  local+glossary - all-MiniLM-L6-v2, query + glossary synonyms, max similarity per document
-  openai-small   - OpenAI text-embedding-3-small (only if OPENAI_API_KEY is set)
-  openai-large   - OpenAI text-embedding-3-large (only if OPENAI_API_KEY is set)
+Setups: each embedding model with and without query expansion from the synonym glossary
+(the same seed as migration 0002, matched the same way as the app: whole words in the query).
+With the glossary, a document's score is its best similarity to the query or any synonym.
 
-For every query the script reports the rank of each relevant document (1 = best) and the gap
-between the weakest relevant and the strongest irrelevant document: a positive gap means a single
-similarity threshold can separate them. Noise queries (nothing relevant) show the highest
-similarity they reach, which is what the threshold has to stay above.
+Metrics (higher is better):
+  R@5      recall in the top 5 (relative to min(5, #relevant)), averaged over queries
+  MRR      reciprocal rank of the first relevant document
+  nDCG@10  binary-relevance nDCG of the top 10
+  F1       best F1 over all (query, document) pairs with ONE global similarity threshold,
+           noise queries included: how well a threshold separates matches from non-matches,
+           which is what the API does
+Ranking metrics are reported separately for queries whose concept is in the glossary and for
+the others, so the glossary's effect is visible beyond the concepts it was written for.
 
-Run inside the app image:  python scripts/benchmark_search.py
+Only the semantic retriever is measured; the API also runs full-text and lexical retrievers.
+
+Run from the repo root inside the app image:
+    python scripts/benchmark_search.py [--openai]
 """
 
+import argparse
+import gc
+import importlib.util
+import math
 import os
+import sys
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
-DOCS = {
-    "utility": "Utility bill\nElectricity utility bill for March 2026 issued to John Doe, "
-    "12 Baker Street, London.",
-    "bank_stmt": "Bank statement\nMonthly bank statement showing account balance and "
-    "transactions for March.",
-    "lease": "Tenancy agreement\nRental agreement for flat at 5 High Road, signed by tenant "
-    "and landlord.",
-    "passport": "Passport copy\nScanned copy of passport, nationality British, date of birth "
-    "01.02.1980.",
-    "portfolio": "Portfolio review\nQuarterly review of equity and bond allocation, "
-    "rebalancing recommendations.",
-    "tax": "Tax return\nAnnual income tax return with capital gains from share sales.",
-    "payslip": "Payslip\nMonthly salary payslip from Acme Ltd, gross pay and deductions.",
-}
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
-# query -> relevant documents
-QUERIES = {
-    "address proof": {"utility", "bank_stmt", "lease"},
-    "identity document": {"passport"},
-    "source of funds": {"payslip", "bank_stmt"},
-    "investment strategy": {"portfolio"},
-    "taxes": {"tax"},
-}
-NOISE = ["weather forecast", "cooking recipe", "football match"]
+from benchmark_dataset import DOCS, GLOSSARY_QUERIES, NOISE_QUERIES, OTHER_QUERIES  # noqa: E402
 
-# Same entries as the search_synonyms seed (migration 0002) for the queries above.
-GLOSSARY = {
-    "address proof": ["utility bill", "bank statement", "tenancy agreement", "council tax bill"],
-    "identity document": ["passport", "driving licence", "national identity card"],
-    "source of funds": ["payslip", "bank statement", "sale agreement", "inheritance"],
-}
+from app.repositories.synonyms import normalize  # noqa: E402
 
 Embed = Callable[[list[str]], np.ndarray]
 
+LOCAL_MODELS = [
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "WealthFromAI/empire-embed",
+    "philschmid/bge-base-financial-matryoshka",
+]
+OPENAI_MODELS = ["text-embedding-3-small", "text-embedding-3-large"]
 
-def local_embedder() -> Embed:
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")
+
+def load_glossary() -> dict[str, list[str]]:
+    path = next((ROOT / "migrations" / "versions").glob("0002_*.py"))
+    spec = importlib.util.spec_from_file_location("migration_0002", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    glossary: dict[str, list[str]] = module.SYNONYMS
+    return glossary
+
+
+GLOSSARY = load_glossary()
+
+
+def expand(query: str) -> list[str]:
+    padded = f" {normalize(query)} "
+    synonyms = {s for term, syns in GLOSSARY.items() if f" {term} " in padded for s in syns}
+    return [query, *sorted(synonyms)]
+
+
+def local_embedder(name: str) -> Embed:
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(name, device="cpu")
     return lambda texts: np.asarray(model.encode(texts, normalize_embeddings=True))
 
 
-def openai_embedder(model: str) -> Embed:
+def openai_embedder(name: str) -> Embed:
     from openai import OpenAI
 
     client = OpenAI()
 
     def embed(texts: list[str]) -> np.ndarray:
-        data = client.embeddings.create(model=model, input=texts).data
-        vectors = np.asarray([d.embedding for d in data])
+        vectors = np.asarray(
+            [d.embedding for d in client.embeddings.create(model=name, input=texts).data]
+        )
         return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
     return embed
 
 
-def similarities(embed: Embed, query: str, doc_vectors: np.ndarray, glossary: bool) -> np.ndarray:
-    variants = [query, *GLOSSARY.get(query, [])] if glossary else [query]
-    return np.asarray((doc_vectors @ embed(variants).T).max(axis=1))
+def ranking_metrics(
+    sims: np.ndarray, relevant: set[str], ids: list[str]
+) -> tuple[float, float, float]:
+    order = [ids[i] for i in np.argsort(-sims)]
+    recall5 = len(relevant & set(order[:5])) / min(5, len(relevant))
+    mrr = next((1 / (rank + 1) for rank, doc in enumerate(order) if doc in relevant), 0.0)
+    dcg = sum(1 / math.log2(rank + 2) for rank, doc in enumerate(order[:10]) if doc in relevant)
+    idcg = sum(1 / math.log2(rank + 2) for rank in range(min(10, len(relevant))))
+    return recall5, mrr, dcg / idcg
 
 
-def run(name: str, embed: Embed, glossary: bool) -> None:
-    names = list(DOCS)
-    doc_vectors = embed(list(DOCS.values()))
-    print(f"\n### {name}\n")
-    print("| query | relevant: rank (similarity) | best irrelevant | gap |")
-    print("|---|---|---|---|")
-    for query, relevant in QUERIES.items():
-        sims = similarities(embed, query, doc_vectors, glossary)
-        order = list(np.argsort(-sims))
-        rel = sorted((order.index(names.index(r)) + 1, r) for r in relevant)
-        rel_text = ", ".join(f"{r} #{rank} ({sims[names.index(r)]:.2f})" for rank, r in rel)
-        irrelevant = max(
-            (sims[i], names[i]) for i in range(len(names)) if names[i] not in relevant
-        )
-        gap = min(sims[names.index(r)] for r in relevant) - irrelevant[0]
-        print(
-            f"| {query} | {rel_text} | {irrelevant[1]} ({irrelevant[0]:.2f}) | "
-            f"{gap:+.2f} {'ok' if gap > 0 else 'FAIL'} |"
-        )
-    noise = max(float(similarities(embed, q, doc_vectors, glossary).max()) for q in NOISE)
-    print(f"\nHighest similarity reached by a noise query: {noise:.2f}")
+def best_f1(scores: list[float], labels: list[bool]) -> tuple[float, float]:
+    pairs = sorted(zip(scores, labels, strict=True), reverse=True)
+    total_pos = sum(labels)
+    best, best_t, tp = 0.0, 1.0, 0
+    for k, (score, label) in enumerate(pairs, 1):
+        tp += label
+        f1 = 2 * tp / (k + total_pos)
+        if f1 > best:
+            best, best_t = f1, score
+    return best, best_t
+
+
+def evaluate(embed: Embed, use_glossary: bool) -> dict[str, float]:
+    ids = list(DOCS)
+    doc_vectors = embed([f"{title}\n{content}" for title, content in DOCS.values()])
+
+    def sims_for(query: str) -> np.ndarray:
+        variants = expand(query) if use_glossary else [query]
+        return np.asarray((doc_vectors @ embed(variants).T).max(axis=1))
+
+    result: dict[str, float] = {}
+    scores: list[float] = []
+    labels: list[bool] = []
+    for group, queries in (("glossary", GLOSSARY_QUERIES), ("other", OTHER_QUERIES)):
+        rows = []
+        for query, relevant in queries.items():
+            sims = sims_for(query)
+            rows.append(ranking_metrics(sims, relevant, ids))
+            scores += sims.tolist()
+            labels += [doc in relevant for doc in ids]
+        r5, mrr, ndcg = (float(np.mean(col)) for col in zip(*rows, strict=True))
+        result |= {f"{group}_r5": r5, f"{group}_mrr": mrr, f"{group}_ndcg": ndcg}
+    for query in NOISE_QUERIES:
+        scores += sims_for(query).tolist()
+        labels += [False] * len(ids)
+    result["f1"], result["threshold"] = best_f1(scores, labels)
+    return result
 
 
 def main() -> None:
-    local = local_embedder()
-    run("local (all-MiniLM-L6-v2)", local, glossary=False)
-    run("local + glossary", local, glossary=True)
-    if os.environ.get("OPENAI_API_KEY"):
-        run("openai text-embedding-3-small", openai_embedder("text-embedding-3-small"), False)
-        run("openai text-embedding-3-large", openai_embedder("text-embedding-3-large"), False)
-    else:
-        print("\n(OPENAI_API_KEY not set: OpenAI modes skipped)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--openai", action="store_true", help="also benchmark OpenAI embeddings")
+    args = parser.parse_args()
+
+    setups: list[tuple[str, Callable[[], Embed]]] = [
+        (name.split("/")[-1], lambda name=name: local_embedder(name)) for name in LOCAL_MODELS
+    ]
+    if args.openai and os.environ.get("OPENAI_API_KEY"):
+        setups += [(f"openai {n}", lambda n=n: openai_embedder(n)) for n in OPENAI_MODELS]
+
+    n_docs = len(DOCS)
+    n_queries = len(GLOSSARY_QUERIES) + len(OTHER_QUERIES)
+    print(
+        f"{n_docs} documents, {len(GLOSSARY_QUERIES)} glossary + {len(OTHER_QUERIES)} other "
+        f"queries, {len(NOISE_QUERIES)} noise queries ({n_queries} labelled)\n"
+    )
+    print(
+        "| setup | glossary queries R@5 / MRR / nDCG | other queries R@5 / MRR / nDCG "
+        "| F1 @ best threshold |"
+    )
+    print("|---|---|---|---|")
+    for name, factory in setups:
+        embed = factory()
+        for use_glossary in (False, True):
+            m = evaluate(embed, use_glossary)
+            label = f"{name} + glossary" if use_glossary else name
+            print(
+                f"| {label} "
+                f"| {m['glossary_r5']:.2f} / {m['glossary_mrr']:.2f} / {m['glossary_ndcg']:.2f} "
+                f"| {m['other_r5']:.2f} / {m['other_mrr']:.2f} / {m['other_ndcg']:.2f} "
+                f"| {m['f1']:.2f} @ {m['threshold']:.2f} |"
+            )
+        del embed
+        gc.collect()
 
 
 if __name__ == "__main__":
