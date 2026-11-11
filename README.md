@@ -84,6 +84,13 @@ Takeaways:
   passport for `address proof`. Larger open models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`) and
   cross-encoder re-rankers did not fix this in my tests either, and the stronger ones need more
   RAM or a GPU than the 2-vCPU / 4 GB server has.
+- **Finance-tuned open models do not help either.** I also ran `mukaj/fin-mpnet-base`,
+  `FinLang/finance-embeddings-investopedia`, `philschmid/bge-base-financial-matryoshka`,
+  `baconnier/Finance2_embedding_small_en-V1.5` and `hassaangyt/compliance-emb-v1`: all of them
+  fail `address proof` and `source of funds` (gaps from -0.02 to -0.19), and some get worse on
+  queries MiniLM handles (`fin-mpnet-base` fails `investment strategy`; the Investopedia model
+  gives the `weather forecast` noise query a 0.51 similarity). They are trained on market and
+  investing text (filings, financial Q&A), not on KYC/onboarding vocabulary.
 - **Hosted embeddings help, but do not solve it.** OpenAI puts the utility bill first, but other
   valid proofs of address (bank statement, tenancy agreement) still rank below irrelevant
   documents, so no threshold works for every query. They also add per-query latency, cost and an
@@ -101,9 +108,13 @@ with KYC / wealth-management concepts by migration `0002`, and can be extended w
 INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electricity bill');
 ```
 
-With more resources or budget, I would consider: an LLM (OpenAI or Claude) to expand queries or to
-tag documents with their type at indexing time (e.g. "proof of address"), hosted embedding models,
-or a larger local model with a GPU, all of which keep the glossary as a cheap, predictable base.
+With more resources or budget, I would consider: fine-tuning the bi-encoder (and a cross-encoder
+re-ranker) on labelled KYC query/document pairs with `MultipleNegativesRankingLoss`, the
+retrieve-and-re-rank approach described in
+[this Habr article](https://habr.com/ru/articles/834356/) (it needs real labelled pairs, not
+pairs generated from the glossary); an LLM (OpenAI or Claude) to expand queries or to tag
+documents with their type at indexing time (e.g. "proof of address"); hosted embedding models;
+or a larger local model with a GPU. All of them keep the glossary as a cheap, predictable base.
 
 ## Tests
 
