@@ -1,0 +1,58 @@
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nevis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nevis}
+      POSTGRES_DB: ${POSTGRES_DB:-nevis}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nevis}:${POSTGRES_PASSWORD:-nevis}@db:5432/${POSTGRES_DB:-nevis}
+      API_KEY: ${API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # --- Tests: `docker compose --profile test run --rm tests` ---
+  db-test:
+    image: pgvector/pgvector:0.8.7-pg18
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://test:test@db-test:5432/test
+    depends_on:
+      db-test:
+        condition: service_healthy
+
+volumes:
+  pgdata:
