@@ -20,7 +20,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Bake the embedding model into the image: no download at startup, works offline.
 RUN python -c "from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+ENV HF_HUB_OFFLINE=1
 
+COPY alembic.ini ./
+COPY migrations ./migrations
 COPY app ./app
 
 

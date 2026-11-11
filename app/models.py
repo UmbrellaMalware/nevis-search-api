@@ -1,0 +1,97 @@
+import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Identity, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db import Base
+
+# Output dimension of sentence-transformers/all-MiniLM-L6-v2.
+EMBEDDING_DIM = 384
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+class SummaryStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class Client(Base):
+    __tablename__ = "clients"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
+    first_name: Mapped[str]
+    last_name: Mapped[str]
+    # Uniqueness is enforced case-insensitively by a unique index on lower(email).
+    email: Mapped[str]
+    description: Mapped[str | None]
+    social_links: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    description_embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIM), deferred=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+
+    documents: Mapped[list[Document]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", passive_deletes=True, lazy="raise"
+    )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str]
+    content: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+
+    # Summary is produced asynchronously by the worker; these columns double as its job queue.
+    summary: Mapped[str | None]
+    summary_status: Mapped[SummaryStatus] = mapped_column(
+        Enum(
+            SummaryStatus,
+            name="summary_status",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        default=SummaryStatus.PENDING,
+    )
+    summary_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    summary_error: Mapped[str | None]
+
+    client: Mapped[Client] = relationship(back_populates="documents", lazy="raise")
+    chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise",
+        order_by="DocumentChunk.chunk_index",
+    )
+
+
+class DocumentChunk(Base):
+    """A slice of a document's content with its embedding (the unit of semantic search)."""
+
+    __tablename__ = "document_chunks"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    chunk_index: Mapped[int]
+    content: Mapped[str]
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+
+    document: Mapped[Document] = relationship(back_populates="chunks", lazy="raise")

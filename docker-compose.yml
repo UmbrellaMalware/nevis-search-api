@@ -13,10 +13,21 @@ services:
       timeout: 3s
       retries: 10
 
-  api:
+  # One-shot: applies DB migrations, then exits. api starts only after it succeeds.
+  migrate:
+    image: nevis-search-api
     build:
       context: .
       target: runtime
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nevis}:${POSTGRES_PASSWORD:-nevis}@db:5432/${POSTGRES_DB:-nevis}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: nevis-search-api
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nevis}:${POSTGRES_PASSWORD:-nevis}@db:5432/${POSTGRES_DB:-nevis}
       API_KEY: ${API_KEY:-}
@@ -24,8 +35,8 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   # --- Tests: `docker compose --profile test run --rm tests` ---
   db-test:
