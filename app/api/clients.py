@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from app.api.deps import EmbedderDep, SessionDep, require_api_key
+from app.exceptions import ClientNotFoundError, EmailAlreadyExistsError
 from app.models import Client, Document
 from app.schemas import ClientCreate, ClientOut, DocumentCreate, DocumentOut, ErrorResponse
 from app.services import clients as client_service
@@ -30,7 +31,7 @@ async def create_client(
 ) -> Client:
     try:
         return await client_service.create_client(session, embedder, payload)
-    except client_service.EmailAlreadyExistsError as exc:
+    except EmailAlreadyExistsError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
@@ -51,5 +52,5 @@ async def create_document(
 ) -> Document:
     try:
         return await document_service.create_document(session, embedder, client_id, payload)
-    except document_service.ClientNotFoundError as exc:
+    except ClientNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

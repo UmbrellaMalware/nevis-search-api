@@ -1,14 +1,10 @@
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import EmailAlreadyExistsError
 from app.models import Client
 from app.schemas import ClientCreate
 from app.services.embeddings import Embedder
-
-
-class EmailAlreadyExistsError(Exception):
-    def __init__(self, email: str) -> None:
-        super().__init__(f"A client with email '{email}' already exists")
 
 
 async def create_client(session: AsyncSession, embedder: Embedder, data: ClientCreate) -> Client:

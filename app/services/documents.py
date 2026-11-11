@@ -3,15 +3,11 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import ClientNotFoundError
 from app.models import Client, Document, DocumentSearchChunk
 from app.schemas import DocumentCreate
 from app.services.chunking import chunk_text
 from app.services.embeddings import Embedder
-
-
-class ClientNotFoundError(Exception):
-    def __init__(self, client_id: uuid.UUID) -> None:
-        super().__init__(f"Client '{client_id}' not found")
 
 
 async def create_document(
