@@ -45,6 +45,66 @@ deployment I would:
   embed it in the background. This removes model latency from the request path and lifts the
   document size limit, since large files can be processed (and streamed) asynchronously.
 
+## How search works
+
+`GET /search?q=...` returns one list of clients and documents ranked by relevance. Four
+retrievers run independently and are merged with Reciprocal Rank Fusion (RRF, `k = 60`), which
+combines ranks instead of raw scores, so trigram similarity, cosine similarity and full-text rank
+never have to be compared directly:
+
+| retriever | what it catches | example |
+|---|---|---|
+| clients: substring + trigram (`pg_trgm`) on email, full name, description | names, email domains, typos | `NevisWealth` -> `john.doe@neviswealth.com`, `neviswelth` |
+| clients: Sentence-BERT on description | meaning of the description | |
+| documents: Sentence-BERT on chunks | meaning, paraphrases | `investment strategy` -> "Portfolio review" |
+| documents: Postgres full-text on chunks | exact terms embeddings miss | an IBAN or account number |
+
+Before that, the query is expanded with domain synonyms from the `search_synonyms` table
+(see below). Semantic matches below a cosine similarity of `0.35` are dropped, so an unrelated
+query such as `weather forecast` returns an empty list instead of "the least bad" documents.
+
+## Search quality: the embedding trade-off
+
+The assignment's example, `address proof` -> a document containing `utility bill`, needs domain
+knowledge (in KYC a utility bill *is* a proof of address). A small local model does not have it.
+I measured this with [`scripts/benchmark_search.py`](scripts/benchmark_search.py) on a small
+KYC-style corpus. **Gap** = similarity of the weakest relevant document minus that of the
+strongest irrelevant one; a positive gap means one threshold separates them.
+
+| setup | address proof | identity document | source of funds | investment strategy | taxes | max noise |
+|---|---|---|---|---|---|---|
+| local `all-MiniLM-L6-v2` | **-0.04** (utility bill ranked 4th) | +0.25 | **-0.01** | +0.12 | +0.17 | 0.11 |
+| local + glossary *(used)* | **+0.34** | +0.30 | +0.15 | +0.12 | +0.17 | 0.11 |
+| OpenAI `text-embedding-3-small` | **-0.02** (utility bill 1st, lease 4th) | +0.17 | **-0.08** | +0.16 | +0.16 | 0.18 |
+| OpenAI `text-embedding-3-large` | **-0.02** (utility bill 1st, lease 4th) | +0.18 | **-0.08** | +0.20 | +0.12 | 0.20 |
+
+Takeaways:
+
+- **The local model alone is too weak** for domain concepts: a utility bill scores below a
+  passport for `address proof`. Larger open models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`) and
+  cross-encoder re-rankers did not fix this in my tests either, and the stronger ones need more
+  RAM or a GPU than the 2-vCPU / 4 GB server has.
+- **Hosted embeddings help, but do not solve it.** OpenAI puts the utility bill first, but other
+  valid proofs of address (bank statement, tenancy agreement) still rank below irrelevant
+  documents, so no threshold works for every query. They also add per-query latency, cost and an
+  external dependency.
+- **A domain glossary closes the gap cheaply.** The query is expanded with synonyms and a
+  document's score is its best similarity to the query or any synonym. It is deterministic,
+  explainable and fast. The cost is coverage: only concepts in the glossary benefit, and an
+  expansion can pull in a near miss (for `source of funds` a tenancy agreement scores 0.47 via
+  "sale agreement").
+
+The glossary lives in the database (`search_synonyms`: `term -> synonym`, lowercase), seeded
+with KYC / wealth-management concepts by migration `0002`, and can be extended without a deploy:
+
+```sql
+INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electricity bill');
+```
+
+With more resources or budget, I would consider: an LLM (OpenAI or Claude) to expand queries or to
+tag documents with their type at indexing time (e.g. "proof of address"), hosted embedding models,
+or a larger local model with a GPU, all of which keep the glossary as a cheap, predictable base.
+
 ## Tests
 
 ```bash
