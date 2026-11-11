@@ -14,8 +14,8 @@ class Embedder:
     and parallel batches would only fight over them.
     """
 
-    def __init__(self, model_name: str) -> None:
-        self._model = SentenceTransformer(model_name, device="cpu")
+    def __init__(self, model_name: str, revision: str | None = None) -> None:
+        self._model = SentenceTransformer(model_name, revision=revision, device="cpu")
         self._limiter = anyio.CapacityLimiter(1)
 
     @property
@@ -37,6 +37,6 @@ class Embedder:
 
 
 @lru_cache
-def load_embedder(model_name: str) -> Embedder:
+def load_embedder(model_name: str, revision: str | None = None) -> Embedder:
     """Load each model once per process (loading takes seconds and ~100 MB of RAM)."""
-    return Embedder(model_name)
+    return Embedder(model_name, revision)

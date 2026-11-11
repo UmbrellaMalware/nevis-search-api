@@ -51,6 +51,7 @@ from app.repositories.synonyms import normalize  # noqa: E402
 Embed = Callable[[list[str]], np.ndarray]
 
 LOCAL_MODELS = [
+    "UmbrellaMalware/all-MiniLM-L6-v2-wealth",
     "sentence-transformers/all-MiniLM-L6-v2",
     "WealthFromAI/empire-embed",
     "philschmid/bge-base-financial-matryoshka",

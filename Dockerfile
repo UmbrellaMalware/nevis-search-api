@@ -18,9 +18,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Bake the embedding model into the image: no download at startup, works offline.
-RUN python -c "from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
-ENV HF_HUB_OFFLINE=1
+# Keep in sync with the defaults in app/config.py (the ENV below makes the app use exactly this).
+ARG EMBEDDING_MODEL=UmbrellaMalware/all-MiniLM-L6-v2-wealth
+ARG EMBEDDING_MODEL_REVISION=68e3018b96bc14bb1aed8ecd0623688123f0e41d
+RUN python -c "import sys; from sentence_transformers import SentenceTransformer; \
+SentenceTransformer(sys.argv[1], revision=sys.argv[2])" \
+    "$EMBEDDING_MODEL" "$EMBEDDING_MODEL_REVISION"
+ENV HF_HUB_OFFLINE=1 \
+    EMBEDDING_MODEL=$EMBEDDING_MODEL \
+    EMBEDDING_MODEL_REVISION=$EMBEDDING_MODEL_REVISION
 
 COPY alembic.ini ./
 COPY migrations ./migrations

@@ -82,8 +82,10 @@ relevant document:
 
 | setup | glossary<br>R@5 / MRR / nDCG@10 | held-out<br>R@5 / MRR / nDCG@10 | other<br>R@5 / MRR / nDCG@10 | F1 at best single threshold |
 |---|---|---|---|---|
+| [`all-MiniLM-L6-v2-wealth`](https://huggingface.co/UmbrellaMalware/all-MiniLM-L6-v2-wealth) (fine-tuned, see below) | 0.59 / 0.69 / 0.64 | **0.60 / 0.68 / 0.64** | 0.94 / 0.92 / 0.93 | 0.53 @ 0.24 |
+| **`all-MiniLM-L6-v2-wealth` + glossary** *(used)* | **0.85 / 1.00 / 0.89** | **0.60 / 0.68 / 0.64** | 0.94 / 0.92 / 0.93 | **0.64** @ 0.31 |
 | `all-MiniLM-L6-v2` | 0.45 / 0.62 / 0.52 | 0.26 / 0.43 / 0.41 | 0.92 / 0.87 / 0.88 | 0.49 @ 0.35 |
-| **`all-MiniLM-L6-v2` + glossary** *(used)* | **0.85 / 0.90 / 0.86** | 0.26 / 0.43 / 0.41 | 0.92 / 0.87 / 0.88 | **0.63** @ 0.35 |
+| `all-MiniLM-L6-v2` + glossary | 0.85 / 0.90 / 0.86 | 0.26 / 0.43 / 0.41 | 0.92 / 0.87 / 0.88 | 0.63 @ 0.35 |
 | `WealthFromAI/empire-embed` | 0.41 / 0.52 / 0.49 | 0.26 / 0.43 / 0.41 | 0.95 / 0.92 / 0.92 | 0.48 @ 0.39 |
 | `WealthFromAI/empire-embed` + glossary | 0.85 / 0.90 / 0.83 | 0.26 / 0.43 / 0.41 | 0.95 / 0.92 / 0.92 | **0.63** @ 0.43 |
 | `philschmid/bge-base-financial-matryoshka` | 0.39 / 0.53 / 0.44 | 0.25 / 0.47 / 0.38 | 0.90 / 0.91 / 0.90 | 0.43 @ 0.33 |
@@ -104,19 +106,23 @@ Takeaways:
   OpenAI's, is weak on its own (R@5 0.39-0.47); with the glossary all of them reach ~0.85. It
   has no effect on queries it does not cover (identical numbers), so it does not hurt them.
 - **It only fires on the wording it contains.** On held-out paraphrases of the same concepts it
-  does nothing, and every model is weak there (R@5 0.25-0.41; OpenAI `3-large` is the least
-  weak). So the glossary's value in production depends on how often advisors use its terms;
-  it has to be grown from real queries (cheap: one `INSERT` per new wording), or its terms
-  matched semantically (embed the terms, fire when the query is close to one) rather than by
-  exact words.
+  does nothing, and every off-the-shelf model is weak there (R@5 0.25-0.41; OpenAI `3-large` is
+  the least weak). So the glossary alone depends on advisors using its terms; it has to be
+  grown from real queries (cheap: one `INSERT` per new wording).
+- **Fine-tuning fixes the paraphrases.** The fine-tuned MiniLM (below) more than doubles R@5 on
+  held-out paraphrases (0.26 -> 0.60, ahead of OpenAI `3-large`), slightly improves general
+  finance queries (0.92 -> 0.94, so no forgetting) and, with the glossary, always puts a
+  relevant document first on glossary queries (MRR 1.00). Model and glossary complement each
+  other: the model generalises to new wordings, the glossary gives instant, explainable fixes.
 - **Model choice matters for general finance queries, but less.** OpenAI `3-large` ranks best
   there (0.99), the finance-tuned `empire-embed` beats MiniLM slightly (0.95 vs 0.92), and the
   rest are close. That edge does not survive thresholding: OpenAI's similarities separate matches
   from non-matches no better (F1 0.58-0.61 vs 0.63), and it adds latency, cost and an external
   dependency per query.
-- **MiniLM + glossary is the best fit for this deployment:** top F1 together with
-  `empire-embed`, Apache-2.0 licence (`empire-embed` declares none), ~90 MB, fast on a 2-vCPU
-  CPU-only server. Its F1-optimal threshold is 0.35, the value the API uses.
+- **Fine-tuned MiniLM + glossary is what the API uses:** best on every group except general
+  finance (where only OpenAI `3-large` is ahead), best F1, same size and speed as the base model
+  (~90 MB, fast on the 2-vCPU CPU-only server), Apache-2.0 like the base model. Its similarities
+  are lower overall, so the API threshold is 0.30 (F1-optimal on the benchmark: 0.31).
 - I also tried larger general models (`all-mpnet-base-v2`, `bge`, `e5`, `gte`), cross-encoder
   re-rankers and more finance-tuned models (`fin-mpnet-base`, `finance-embeddings-investopedia`,
   `snowflake-arctic-embed-financial`, `modernbert-embed-finance`, `finance-gemma-300m-emb`, ...)
@@ -134,6 +140,23 @@ with KYC / wealth-management concepts by migration `0002`, and can be extended w
 ```sql
 INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electricity bill');
 ```
+
+### The fine-tuned model
+
+[`UmbrellaMalware/all-MiniLM-L6-v2-wealth`](https://huggingface.co/UmbrellaMalware/all-MiniLM-L6-v2-wealth)
+is `all-MiniLM-L6-v2` fine-tuned with `MultipleNegativesRankingLoss` (the approach from
+[this Habr article](https://habr.com/ru/articles/834356/)) on **synthetic** data: an LLM
+(`gpt-4.1-mini`) wrote 264 realistic documents across 44 wealth-management categories and 1,584
+adviser-style queries for them. It never saw the benchmark documents or queries, and generated
+queries close to benchmark ones were filtered out. Training takes ~8 seconds on a laptop GPU;
+three seeds gave held-out R@5 0.58-0.60. The model card on Hugging Face documents data, training
+and limitations. The app pins a specific model revision (`app/config.py`, `Dockerfile`), and the
+model is baked into the Docker image at build time.
+
+Honest limits: the training documents are LLM-generated and cover the same categories as the
+benchmark, so the gain on real documents is probably smaller; it should be validated (and the
+model re-trained) on real, anonymised advisor queries. Changing the embedding model requires
+re-embedding stored documents (the vectors of different models are not comparable).
 
 **For Nevis specifically**, advisors search mostly financial content (portfolios, statements,
 tax, investment proposals), with KYC/onboarding documents as one important slice. So the model I

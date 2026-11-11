@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_engine(settings.database_url)
     app.state.engine = engine
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-    app.state.embedder = load_embedder(settings.embedding_model)
+    app.state.embedder = load_embedder(settings.embedding_model, settings.embedding_model_revision)
     try:
         yield
     finally:
