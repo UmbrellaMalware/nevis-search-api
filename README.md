@@ -67,9 +67,8 @@ query such as `weather forecast` returns an empty list instead of "the least bad
 
 The assignment's example, `address proof` -> a document containing `utility bill`, needs domain
 knowledge (in KYC a utility bill *is* a proof of address). I measured how different embedding
-setups handle this with [`scripts/benchmark_search.py`](scripts/benchmark_search.py) on a
-hand-labelled wealth-advisor corpus ([`scripts/benchmark_dataset.py`](scripts/benchmark_dataset.py)):
-42 documents (KYC, income and source of funds, tax, investments, pensions, estate planning,
+setups handle this with a benchmark script (not kept in the repo) on a hand-labelled
+wealth-advisor corpus: 42 documents (KYC, income and source of funds, tax, investments, pensions, estate planning,
 insurance, plus unrelated distractors) written the way real documents read, i.e. a utility bill
 never says "proof of address"; 38 labelled queries in three groups; 5 noise queries with no
 relevant document:

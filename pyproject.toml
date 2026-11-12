@@ -48,10 +48,6 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
 
-[tool.ruff.lint.per-file-ignores]
-# Evaluation data: long literal document texts.
-"scripts/benchmark_dataset.py" = ["E501"]
-
 [tool.mypy]
 python_version = "3.14"
 strict = true
