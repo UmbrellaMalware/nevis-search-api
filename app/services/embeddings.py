@@ -29,14 +29,15 @@ class Embedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch in one model call: one vector per text, in the same order.
 
-        ["utility bill", "passport"] -> [[0.01, ...], [0.07, ...]]  (two 384-dim vectors)
+        ["utility bill", "passport"] -> [[0.01, ...], [0.07, ...]]
+        (2 vectors, EMBEDDING_DIM numbers each)
         """
         return await anyio.to_thread.run_sync(self.embed_sync, texts, limiter=self._limiter)
 
     async def embed_one(self, text: str) -> list[float]:
         """Embed a single text: a batch of one, unwrapped.
 
-        "utility bill" -> [0.01, ...]  (one 384-dim vector)
+        "utility bill" -> [0.01, ...]  (one vector of EMBEDDING_DIM numbers)
         """
         vectors = await self.embed([text])  # a list with exactly one vector
         return vectors[0]

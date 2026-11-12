@@ -5,6 +5,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.models import EMBEDDING_DIM
+
 DOCUMENT = {"title": "Utility bill", "content": "Electricity utility bill for March 2026."}
 
 
@@ -44,7 +46,7 @@ async def test_long_document_is_chunked_and_embedded(
             )
         ).all()
     assert [r[0] for r in rows] == [0, 1, 2, 3]  # 400 words, windows of 150 with 30 overlap
-    assert {r[1] for r in rows} == {384}
+    assert {r[1] for r in rows} == {EMBEDDING_DIM}
 
 
 async def test_unknown_client_returns_404(client: AsyncClient) -> None:

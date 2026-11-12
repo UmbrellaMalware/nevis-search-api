@@ -1,15 +1,6 @@
-from collections.abc import AsyncIterator
-
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.repositories.synonyms import SynonymRepository, normalize
-
-
-@pytest.fixture
-async def synonyms(db: AsyncEngine) -> AsyncIterator[SynonymRepository]:
-    async with AsyncSession(db) as session:
-        yield SynonymRepository(session)
 
 
 def test_normalize() -> None:

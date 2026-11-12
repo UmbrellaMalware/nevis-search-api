@@ -5,6 +5,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.models import EMBEDDING_DIM
+
 VALID_CLIENT = {
     "first_name": "John",
     "last_name": "Doe",
@@ -42,7 +44,7 @@ async def test_description_is_embedded(client: AsyncClient, db: AsyncEngine) -> 
             text("SELECT vector_dims(description_embedding) FROM clients WHERE id = :id"),
             {"id": response.json()["id"]},
         )
-    assert dims == 384
+    assert dims == EMBEDDING_DIM
 
 
 async def test_duplicate_email_is_rejected_case_insensitively(client: AsyncClient) -> None:

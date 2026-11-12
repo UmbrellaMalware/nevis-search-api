@@ -3,10 +3,7 @@ from httpx import AsyncClient
 
 CLIENT = {"first_name": "Ann", "last_name": "Lee", "email": "ann@example.com"}
 
-
-@pytest.fixture(autouse=True)
-def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("API_KEY", "s3cret")
+pytestmark = pytest.mark.usefixtures("api_key")
 
 
 async def test_missing_key_returns_401(client: AsyncClient) -> None:
@@ -22,8 +19,8 @@ async def test_wrong_key_returns_401(client: AsyncClient) -> None:
     assert response.status_code == 401
 
 
-async def test_valid_key_is_accepted(client: AsyncClient) -> None:
-    response = await client.post("/clients", json=CLIENT, headers={"X-API-Key": "s3cret"})
+async def test_valid_key_is_accepted(client: AsyncClient, api_key: str) -> None:
+    response = await client.post("/clients", json=CLIENT, headers={"X-API-Key": api_key})
 
     assert response.status_code == 201
 

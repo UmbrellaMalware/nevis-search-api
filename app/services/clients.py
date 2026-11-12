@@ -27,7 +27,7 @@ async def create_client(
 async def _embed_description(embedder: Embedder, description: str | None) -> list[float] | None:
     """Vector for semantic search over the client's description.
 
-    "Wealth manager focused on retirement planning" -> [0.03, ...]  (384-dim vector)
+    "Wealth manager focused on retirement planning" -> [0.03, ...]  (EMBEDDING_DIM numbers)
     None (no description)                           -> None (nothing to search by meaning;
                                                        semantic client search skips the client)
     """

@@ -9,7 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
-# Output dimension of sentence-transformers/all-MiniLM-L6-v2.
+# Output dimension of the embedding model (all-MiniLM-L6-v2 and its fine-tune): the length of
+# every vector stored in the database.
 EMBEDDING_DIM = 384
 
 
