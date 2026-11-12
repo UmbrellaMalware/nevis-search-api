@@ -84,7 +84,7 @@ class DocumentRepository:
     ) -> list[DocumentMatch]:
         """Documents whose best chunk is close to any query vector (max similarity wins)."""
         # shortcut: one long document (up to ~120 chunks) can fill all candidates and hide other
-        # documents; fetch more excluding seen documents (hnsw.iterative_scan) when that bites.
+        # documents; fetch more chunks until enough documents are found when that bites.
         candidates = limit * 5  # several chunks may belong to the same document
         # HNSW returns at most ef_search rows; make sure it can serve all candidates.
         await self._session.execute(text(f"SET LOCAL hnsw.ef_search = {int(candidates)}"))
@@ -119,7 +119,7 @@ class DocumentRepository:
             select(DocumentSearchChunk.document_id, DocumentSearchChunk.content, rank)
             .where(DocumentSearchChunk.search_tsv.op("@@")(tsquery))
             .order_by(rank.desc())
-            # shortcut: same limit as search_semantic; DISTINCT ON (document_id) would fix it here.
+            # shortcut: same limit and same crowding problem as search_semantic.
             .limit(limit * 5)
         )
         best: BestScores[uuid.UUID, str] = BestScores()  # document id -> best chunk's content

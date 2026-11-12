@@ -83,10 +83,8 @@ query such as `weather forecast` returns an empty list instead of "the least bad
 **Known limitation: long documents can crowd out others.** Document search fetches the 100
 best-matching chunks (5 per result) and keeps the best chunk of each document. A long document
 can have up to ~120 chunks; if one long report fills all 100 slots, other relevant documents
-are not returned. Not fixed yet. The fix: for full-text, keep one row per document in SQL
-(`DISTINCT ON (document_id)`); for semantic search, keep fetching more chunks while excluding
-documents already found, with pgvector's `hnsw.iterative_scan` so the index keeps scanning past
-the excluded ones.
+are not returned. Not fixed yet: it can be solved by fetching more chunks until enough
+different documents are found.
 
 ## Search quality: the embedding trade-off
 
