@@ -225,8 +225,7 @@ fine-tuned model below, which already closes much of the gap without the glossar
 ### The fine-tuned model
 
 [`UmbrellaMalware/all-MiniLM-L6-v2-wealth`](https://huggingface.co/UmbrellaMalware/all-MiniLM-L6-v2-wealth)
-is `all-MiniLM-L6-v2` fine-tuned with `MultipleNegativesRankingLoss` (the approach from
-[this Habr article](https://habr.com/ru/articles/834356/)) on **synthetic** data: an LLM
+is `all-MiniLM-L6-v2` fine-tuned on **synthetic** data: an LLM
 (`gpt-4.1-mini`) wrote 264 realistic documents across 44 wealth-management categories and 1,584
 adviser-style queries for them. It never saw the benchmark documents or queries, and generated
 queries close to benchmark ones were filtered out. Training takes ~8 seconds on a laptop GPU;
