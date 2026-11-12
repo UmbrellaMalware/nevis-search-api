@@ -7,6 +7,7 @@ from sqlalchemy import ColumnElement, Text, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Document, DocumentSearchChunk
+from app.repositories.best_scores import BestScores
 
 FTS_CONFIG = "english"
 
@@ -38,7 +39,7 @@ class DocumentRepository:
         # HNSW returns at most ef_search rows; make sure it can serve all candidates.
         await self._session.execute(text(f"SET LOCAL hnsw.ef_search = {int(candidates)}"))
 
-        best: dict[uuid.UUID, tuple[str, float]] = {}
+        best: BestScores[uuid.UUID, str] = BestScores()  # document id -> best chunk's content
         for vector in vectors:
             distance = DocumentSearchChunk.embedding.cosine_distance(vector)
             rows = await self._session.execute(
@@ -50,9 +51,8 @@ class DocumentRepository:
                 similarity = 1 - float(dist)
                 if similarity < min_similarity:
                     break  # rows are ordered by distance
-                if document_id not in best or similarity > best[document_id][1]:
-                    best[document_id] = (content, similarity)
-        return await self._load(best, limit)
+                best.offer(document_id, content, similarity)
+        return await self._load(best.top(limit))
 
     async def search_full_text(
         self, query: str, phrases: Sequence[str], limit: int
@@ -69,24 +69,21 @@ class DocumentRepository:
             .order_by(rank.desc())
             .limit(limit * 5)
         )
-        best: dict[uuid.UUID, tuple[str, float]] = {}
+        best: BestScores[uuid.UUID, str] = BestScores()  # document id -> best chunk's content
         for document_id, content, score in rows:
-            if document_id not in best:  # rows are ordered by rank
-                best[document_id] = (content, float(score))
-        return await self._load(best, limit)
+            best.offer(document_id, content, float(score))
+        return await self._load(best.top(limit))
 
-    async def _load(
-        self, best: dict[uuid.UUID, tuple[str, float]], limit: int
-    ) -> list[DocumentMatch]:
-        top = sorted(best.items(), key=lambda item: item[1][1], reverse=True)[:limit]
+    async def _load(self, top: list[tuple[uuid.UUID, str, float]]) -> list[DocumentMatch]:
+        """Fetch the documents for `(document id, snippet, score)` rows, keeping their order."""
         if not top:
             return []
         documents = await self._session.scalars(
-            select(Document).where(Document.id.in_([doc_id for doc_id, _ in top]))
+            select(Document).where(Document.id.in_([doc_id for doc_id, _, _ in top]))
         )
         by_id = {doc.id: doc for doc in documents}
         return [
             DocumentMatch(document=by_id[doc_id], snippet=snippet, score=score)
-            for doc_id, (snippet, score) in top
+            for doc_id, snippet, score in top
             if doc_id in by_id
         ]

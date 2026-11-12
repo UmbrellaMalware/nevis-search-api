@@ -18,12 +18,6 @@ class Embedder:
         self._model = SentenceTransformer(model_name, revision=revision, device="cpu")
         self._limiter = anyio.CapacityLimiter(1)
 
-    @property
-    def dimension(self) -> int:
-        dim = self._model.get_sentence_embedding_dimension()
-        assert dim is not None
-        return int(dim)
-
     def embed_sync(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
@@ -33,7 +27,19 @@ class Embedder:
         return cast(list[list[float]], np.asarray(vectors, dtype=np.float32).tolist())
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed a batch in one model call: one vector per text, in the same order.
+
+        ["utility bill", "passport"] -> [[0.01, ...], [0.07, ...]]  (two 384-dim vectors)
+        """
         return await anyio.to_thread.run_sync(self.embed_sync, texts, limiter=self._limiter)
+
+    async def embed_one(self, text: str) -> list[float]:
+        """Embed a single text: a batch of one, unwrapped.
+
+        "utility bill" -> [0.01, ...]  (one 384-dim vector)
+        """
+        [vector] = await self.embed([text])
+        return vector
 
 
 @lru_cache

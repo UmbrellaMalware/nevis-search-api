@@ -10,8 +10,6 @@ async def create_client(
     session: AsyncSession, embedder: Embedder, data: ClientCreateData
 ) -> ClientDTO:
     """Create a client. Raises EmailAlreadyExistsError if the email is taken (any case)."""
-    embedding = (await embedder.embed([data.description]))[0] if data.description else None
-
     client = await ClientRepository(session).add(
         Client(
             first_name=data.first_name,
@@ -19,8 +17,20 @@ async def create_client(
             email=data.email,
             description=data.description,
             social_links=data.social_links,
-            description_embedding=embedding,
+            description_embedding=await _embed_description(embedder, data.description),
         )
     )
     await session.commit()
     return ClientDTO.model_validate(client)
+
+
+async def _embed_description(embedder: Embedder, description: str | None) -> list[float] | None:
+    """Vector for semantic search over the client's description.
+
+    "Wealth manager focused on retirement planning" -> [0.03, ...]  (384-dim vector)
+    None (no description)                           -> None (nothing to search by meaning;
+                                                       semantic client search skips the client)
+    """
+    if not description:
+        return None
+    return await embedder.embed_one(description)
