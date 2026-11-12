@@ -15,3 +15,11 @@ class EmailAlreadyExistsError(AppError):
 class ClientNotFoundError(AppError):
     def __init__(self, client_id: uuid.UUID) -> None:
         super().__init__(f"Client '{client_id}' not found")
+
+
+class DocumentAlreadyExistsError(AppError):
+    def __init__(self, client_id: uuid.UUID, document_id: uuid.UUID) -> None:
+        self.document_id = document_id
+        super().__init__(
+            f"Client '{client_id}' already has a document with this content: '{document_id}'"
+        )

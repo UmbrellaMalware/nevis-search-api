@@ -4,7 +4,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from app.api.deps import EmbedderDep, SessionDep, require_api_key
-from app.exceptions import ClientNotFoundError, EmailAlreadyExistsError
+from app.exceptions import (
+    ClientNotFoundError,
+    DocumentAlreadyExistsError,
+    EmailAlreadyExistsError,
+)
 from app.schemas import ClientCreate, ClientOut, DocumentCreate, DocumentOut, ErrorResponse
 from app.services import clients as client_service
 from app.services import documents as document_service
@@ -53,6 +57,11 @@ async def create_client(
     responses={
         **_AUTH_ERROR,
         404: {"model": ErrorResponse, "description": "Client not found"},
+        409: {
+            "model": ErrorResponse,
+            "description": "The client already has a document with this content; "
+            "`detail` contains the existing document's id",
+        },
     },
 )
 async def create_document(
@@ -70,4 +79,6 @@ async def create_document(
         )
     except ClientNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentAlreadyExistsError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return DocumentOut.model_validate(document, from_attributes=True)

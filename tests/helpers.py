@@ -1,5 +1,3 @@
-"""Plain helpers shared by tests (fixtures live in conftest.py)."""
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 

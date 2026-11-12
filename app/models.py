@@ -3,7 +3,17 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Computed, DateTime, Enum, ForeignKey, Identity, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Computed,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Identity,
+    LargeBinary,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -55,6 +65,8 @@ class Document(Base):
     )
     title: Mapped[str]
     content: Mapped[str]
+    # SHA-256 of the UTF-8 content; unique per client (uq_documents_client_content_hash).
+    content_hash: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now()
     )

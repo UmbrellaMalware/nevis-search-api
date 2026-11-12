@@ -9,6 +9,7 @@ from sqlalchemy.orm import QueryableAttribute
 
 from app.exceptions import EmailAlreadyExistsError
 from app.models import Client
+from app.repositories.constraints import violated_constraint
 from app.utils.best_scores import BestScores
 
 EMAIL_UNIQUE_INDEX = "uq_clients_email_lower"
@@ -41,7 +42,7 @@ class ClientRepository:
         try:
             await self._session.flush()
         except IntegrityError as exc:
-            if _violated_constraint(exc) == EMAIL_UNIQUE_INDEX:
+            if violated_constraint(exc) == EMAIL_UNIQUE_INDEX:
                 raise EmailAlreadyExistsError(client.email) from exc
             raise
         return client
@@ -84,16 +85,9 @@ class ClientRepository:
         return [(client, similarity) for _, client, similarity in best.top(limit)]
 
 
-def _violated_constraint(exc: IntegrityError) -> str | None:
-    # SQLAlchemy wraps the driver error; asyncpg exposes the constraint/index name on the cause.
-    driver_error = exc.orig.__cause__ if exc.orig is not None else None
-    name = getattr(driver_error, "constraint_name", None)
-    return name if isinstance(name, str) else None
-
-
 def _escape_like(value: str) -> str:
-    """Make LIKE wildcards literal: "100%_sure" -> "100\%\_sure"."""
-    return value.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_")
+    r"""Make LIKE wildcards literal: "100%_sure" -> "100\%\_sure"."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _contains(query: str) -> ColumnElement[bool]:

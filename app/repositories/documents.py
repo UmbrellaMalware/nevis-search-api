@@ -4,12 +4,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import ColumnElement, Text, func, literal, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DocumentAlreadyExistsError
 from app.models import Document, DocumentSearchChunk
+from app.repositories.constraints import violated_constraint
 from app.utils.best_scores import BestScores
 
 FTS_CONFIG = "english"
+CONTENT_HASH_UNIQUE_INDEX = "uq_documents_client_content_hash"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,10 +29,35 @@ class DocumentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def find_id_by_content_hash(
+        self, client_id: uuid.UUID, content_hash: bytes
+    ) -> uuid.UUID | None:
+        """Id of the client's document with this content hash, if one was already uploaded."""
+        return await self._session.scalar(
+            select(Document.id).where(
+                Document.client_id == client_id, Document.content_hash == content_hash
+            )
+        )
+
     async def add(self, document: Document) -> Document:
-        """Persist a document together with its search chunks (cascaded by the relationship)."""
-        self._session.add(document)
-        await self._session.flush()
+        """Persist a document together with its search chunks (cascaded by the relationship).
+
+        Raises DocumentAlreadyExistsError if the client already has a document with the same
+        content: the unique index catches two concurrent uploads of the same document.
+        The savepoint keeps the session usable after the failed insert, to look up the winner.
+        """
+        try:
+            async with self._session.begin_nested():
+                self._session.add(document)
+        except IntegrityError as exc:
+            if violated_constraint(exc) != CONTENT_HASH_UNIQUE_INDEX:
+                raise
+            existing = await self.find_id_by_content_hash(
+                document.client_id, document.content_hash
+            )
+            if existing is None:
+                raise
+            raise DocumentAlreadyExistsError(document.client_id, existing) from exc
         return document
 
     async def search_semantic(

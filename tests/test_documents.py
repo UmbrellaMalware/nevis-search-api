@@ -1,11 +1,14 @@
+import hashlib
 import uuid
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.models import EMBEDDING_DIM
+from app.exceptions import DocumentAlreadyExistsError
+from app.models import EMBEDDING_DIM, Document
+from app.repositories.documents import DocumentRepository
 
 DOCUMENT = {"title": "Utility bill", "content": "Electricity utility bill for March 2026."}
 
@@ -47,6 +50,52 @@ async def test_long_document_is_chunked_and_embedded(
         ).all()
     assert [r[0] for r in rows] == [0, 1, 2, 3]  # 400 words, windows of 150 with 30 overlap
     assert {r[1] for r in rows} == {EMBEDDING_DIM}
+
+
+async def test_same_content_for_same_client_returns_409_with_existing_id(
+    client: AsyncClient, created_client: dict[str, object]
+) -> None:
+    url = f"/clients/{created_client['id']}/documents"
+    first = await client.post(url, json=DOCUMENT)
+
+    # Another title does not make it another document: the content is what counts.
+    response = await client.post(url, json={**DOCUMENT, "title": "March bill"})
+
+    assert response.status_code == 409
+    assert first.json()["id"] in response.json()["detail"]
+
+
+async def test_same_content_for_another_client_is_accepted(
+    client: AsyncClient, created_client: dict[str, object]
+) -> None:
+    other = await client.post(
+        "/clients", json={"first_name": "Ann", "last_name": "Lee", "email": "ann@example.com"}
+    )
+    await client.post(f"/clients/{created_client['id']}/documents", json=DOCUMENT)
+
+    response = await client.post(f"/clients/{other.json()['id']}/documents", json=DOCUMENT)
+
+    assert response.status_code == 201
+
+
+async def test_unique_index_rejects_duplicate_that_passed_the_check(
+    client: AsyncClient, created_client: dict[str, object], db: AsyncEngine
+) -> None:
+    # Simulates two concurrent uploads: both pass the service's check, the index stops one.
+    first = await client.post(f"/clients/{created_client['id']}/documents", json=DOCUMENT)
+    client_id = uuid.UUID(str(created_client["id"]))
+    duplicate = Document(
+        client_id=client_id,
+        title="Copy",
+        content=DOCUMENT["content"],
+        content_hash=hashlib.sha256(DOCUMENT["content"].encode()).digest(),
+    )
+
+    async with AsyncSession(db) as session:
+        with pytest.raises(DocumentAlreadyExistsError) as error:
+            await DocumentRepository(session).add(duplicate)
+
+    assert error.value.document_id == uuid.UUID(first.json()["id"])
 
 
 async def test_unknown_client_returns_404(client: AsyncClient) -> None:

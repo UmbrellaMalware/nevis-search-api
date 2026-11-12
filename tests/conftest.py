@@ -19,21 +19,25 @@ ROOT = Path(__file__).resolve().parent.parent
 # Captured once: some tests point the app at a broken URL, cleanup must still hit the real DB.
 TEST_DATABASE_URL = os.environ.get("DATABASE_URL", Settings().database_url)
 
+
 @pytest.fixture(scope="session", autouse=True)
 def _migrated_database() -> None:
     """Apply real Alembic migrations once, so the migrations themselves are under test."""
     command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
+
 
 @pytest.fixture(autouse=True)
 def _fresh_settings() -> None:
     # Settings are cached; tests that change env vars need a clean read.
     get_settings.cache_clear()
 
+
 @pytest.fixture
 async def db() -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     yield engine
     await engine.dispose()
+
 
 @pytest.fixture(autouse=True)
 async def _clean_tables() -> AsyncIterator[None]:
@@ -42,6 +46,7 @@ async def _clean_tables() -> AsyncIterator[None]:
     async with engine.begin() as conn:
         await conn.execute(text("TRUNCATE clients, documents, document_search_chunks CASCADE"))
     await engine.dispose()
+
 
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
@@ -53,6 +58,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     ):
         yield c
 
+
 @pytest.fixture
 async def created_client(client: AsyncClient) -> dict[str, object]:
     response = await client.post(
@@ -63,16 +69,19 @@ async def created_client(client: AsyncClient) -> dict[str, object]:
     body: dict[str, object] = response.json()
     return body
 
+
 @pytest.fixture
 def api_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Turn API key auth on for the test; returns the key to send in X-API-Key."""
     monkeypatch.setenv("API_KEY", "s3cret")
     return "s3cret"
 
+
 @pytest.fixture
 async def synonyms(db: AsyncEngine) -> AsyncIterator[SynonymRepository]:
     async with AsyncSession(db) as session:
         yield SynonymRepository(session)
+
 
 # --- Search ------------------------------------------------------------------------------------
 
@@ -93,6 +102,7 @@ SEARCH_DOCUMENTS = {
     "Portfolio review": "Quarterly review of equity and bond allocation with rebalancing advice.",
     "Wire instructions": "Transfer funds to IBAN DE89370400440532013000 before the end of month.",
 }
+
 
 @pytest.fixture
 async def corpus(client: AsyncClient) -> dict[str, str]:
