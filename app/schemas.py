@@ -1,11 +1,11 @@
 import uuid
 from datetime import datetime
-from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
 from app.models import SummaryStatus
+from app.services.dto import MatchType
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 SocialLink = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
@@ -65,12 +65,6 @@ class DocumentOut(BaseModel):
 # --- Search ---------------------------------------------------------------------------------
 
 
-class MatchType(StrEnum):
-    LEXICAL = "lexical"  # substring / fuzzy match on client email, name or description
-    SEMANTIC = "semantic"  # Sentence-BERT similarity (optionally via a glossary synonym)
-    FULL_TEXT = "full_text"  # Postgres full-text match on document content
-
-
 class DocumentBrief(BaseModel):
     """A document as shown in search results: everything except the (potentially large) content."""
 
@@ -85,6 +79,8 @@ class DocumentBrief(BaseModel):
 
 
 class ClientSearchHit(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # built from app.services.dto.ClientHit
+
     type: Literal["client"] = "client"
     score: float = Field(description="Relevance (Reciprocal Rank Fusion); higher is better.")
     matched_by: list[MatchType]
@@ -92,6 +88,8 @@ class ClientSearchHit(BaseModel):
 
 
 class DocumentSearchHit(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # built from app.services.dto.DocumentHit
+
     type: Literal["document"] = "document"
     score: float = Field(description="Relevance (Reciprocal Rank Fusion); higher is better.")
     matched_by: list[MatchType]

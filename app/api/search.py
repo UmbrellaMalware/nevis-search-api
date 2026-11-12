@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import EmbedderDep, SessionDep, require_api_key
 from app.config import get_settings
-from app.schemas import ErrorResponse, SearchHit
+from app.schemas import ClientSearchHit, DocumentSearchHit, ErrorResponse, SearchHit
 from app.services import search as search_service
+from app.services.dto import ClientHit, SearchResult
 
 router = APIRouter(tags=["search"], dependencies=[Depends(require_api_key)])
 
@@ -33,10 +34,17 @@ async def search(
     if not q.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Query must not be blank")
     settings = get_settings()
-    return await search_service.search(
+    results = await search_service.search(
         session,
         embedder,
         q,
         min_similarity=settings.search_min_similarity,
         limit=settings.search_result_limit,
     )
+    return [_to_schema(result) for result in results]
+
+
+def _to_schema(result: SearchResult) -> SearchHit:
+    if isinstance(result, ClientHit):
+        return ClientSearchHit.model_validate(result, from_attributes=True)
+    return DocumentSearchHit.model_validate(result, from_attributes=True)

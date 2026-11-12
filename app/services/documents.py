@@ -6,8 +6,8 @@ from app.exceptions import ClientNotFoundError
 from app.models import Document, DocumentSearchChunk
 from app.repositories.clients import ClientRepository
 from app.repositories.documents import DocumentRepository
-from app.schemas import DocumentCreate
 from app.services.chunking import chunk_text
+from app.services.dto import DocumentCreateData, DocumentDTO
 from app.services.embeddings import Embedder
 
 
@@ -15,8 +15,8 @@ async def create_document(
     session: AsyncSession,
     embedder: Embedder,
     client_id: uuid.UUID,
-    data: DocumentCreate,
-) -> Document:
+    data: DocumentCreateData,
+) -> DocumentDTO:
     """Create a document and its search chunks. Raises ClientNotFoundError for unknown clients."""
     if not await ClientRepository(session).exists(client_id):
         raise ClientNotFoundError(client_id)
@@ -38,4 +38,4 @@ async def create_document(
         )
     )
     await session.commit()
-    return document
+    return DocumentDTO.model_validate(document)
