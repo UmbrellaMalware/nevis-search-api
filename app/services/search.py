@@ -42,6 +42,12 @@ MIN_LEXICAL_QUERY_CHARS = 2  # a single character would substring-match nearly e
 
 @dataclass
 class _Fused:
+    """One client or document accumulated across all retrievers (Reciprocal Rank Fusion).
+
+    Retriever scores live on incomparable scales, so RRF uses ranks only: each retriever adds
+    1 / (RRF_K + rank) to `score`. Items found by several retrievers sum up and rank higher.
+    """
+
     score: float = 0.0
     matched_by: list[MatchType] = field(default_factory=list)
     client: Client | None = None
