@@ -68,22 +68,22 @@ query such as `weather forecast` returns an empty list instead of "the least bad
 The assignment's example, `address proof` -> a document containing `utility bill`, needs domain
 knowledge: in KYC a utility bill *is* a proof of address, but the two phrases share no words and
 a general-purpose model does not know they mean the same thing. Getting this right took several
-attempts; this section is the story of them, with the numbers.
+attempts.
 
 ### How I measured
 
-I wrote a small test set of the kind of content a wealth advisor searches: 42 documents (KYC,
-income and source of funds, tax, investments, pensions, estate planning, insurance, plus a few
-unrelated ones), written the way real documents read, so a utility bill never says "proof of
-address". For 38 queries I marked by hand which documents are correct answers. The queries come in
-three groups:
+The test set was generated with an AI assistant (an LLM): a small set of the kind of content a
+wealth advisor searches, 42 documents (KYC, income and source of funds, tax, investments,
+pensions, estate planning, insurance, plus a few unrelated ones), written the way real documents
+read, so a utility bill never says "proof of address". For 38 queries it lists which documents
+are the correct answers. The queries come in three groups:
 
 - **Glossary wording** (7 queries): KYC concepts phrased the way the synonym glossary phrases
   them, e.g. `address proof`, `photo id`.
 - **Paraphrases** (8 queries): the *same* KYC concepts in other words, e.g. `evidence of
   residence`, `where does the client's money come from`. The glossary cannot help here, so this
-  group shows whether the model itself understands the concept, and keeps me honest: I wrote the
-  glossary, so the first group flatters it.
+  group shows whether the model itself understands the concept. It keeps the test honest: the
+  first group uses the glossary's own wording, so it flatters the glossary.
 - **General finance** (23 queries): topics the glossary does not cover, e.g. `pension`,
   `estate planning`.
 
@@ -133,7 +133,7 @@ xychart-beta
 The server has 2 vCPUs, 3.8 GB RAM and no GPU, so the model has to be small. I looked for models
 trained on financial text and tried, among others, `WealthFromAI/empire-embed` and
 `philschmid/bge-base-financial-matryoshka`, as well as larger general models (`all-mpnet-base-v2`,
-`bge`, `e5`, `gte`), cross-encoder re-rankers and more finance models (`fin-mpnet-base`,
+`bge`, `e5`, `gte`) and more finance models (`fin-mpnet-base`,
 `finance-embeddings-investopedia`, `snowflake-arctic-embed-financial`, `modernbert-embed-finance`,
 `finance-gemma-300m-emb`, ...). Some are slightly better on general finance (`empire-embed`: 0.95),
 but none understands the KYC paraphrases any better than MiniLM (0.25-0.26), several are worse, and
@@ -188,9 +188,9 @@ What I take from it:
   real gap was domain knowledge, and a small model trained on the domain closed more of it.
 - **The threshold follows the model.** The fine-tuned model's similarities are lower overall, so
   the API keeps results above 0.30 (the F1-optimal value on this test set is 0.31).
-- **Caveats.** The documents, queries and labels are mine and few, so differences of a few points
-  are noise. A real evaluation needs real, anonymised advisor queries, labelled by someone other
-  than the glossary's author. Prod check: `evidence of residence` still finds nothing on the
+- **Caveats.** The documents, queries and answers are AI-generated and few, so differences of a
+  few points are noise. A real evaluation needs real, anonymised advisor queries, labelled by
+  people who know the domain. Prod check: `evidence of residence` still finds nothing on the
   three-document demo data, so paraphrases are better, not solved.
 
 ### The synonym glossary
@@ -230,9 +230,8 @@ is `all-MiniLM-L6-v2` fine-tuned with `MultipleNegativesRankingLoss` (the approa
 (`gpt-4.1-mini`) wrote 264 realistic documents across 44 wealth-management categories and 1,584
 adviser-style queries for them. It never saw the benchmark documents or queries, and generated
 queries close to benchmark ones were filtered out. Training takes ~8 seconds on a laptop GPU;
-three seeds gave held-out R@5 0.58-0.60. The model card on Hugging Face documents data, training
-and limitations. The app pins a specific model revision (`app/config.py`, `Dockerfile`), and the
-model is baked into the Docker image at build time.
+three training runs gave 0.58-0.60 on paraphrases. The model card on Hugging Face documents
+data, training and limitations.
 
 Honest limits: the training documents are LLM-generated and cover the same categories as the
 benchmark, so the gain on real documents is probably smaller; it should be validated (and the
@@ -250,13 +249,9 @@ vocabulary, so it learns "address proof -> utility bill" without forgetting the 
 (mixing the two kinds of pairs in training avoids that). Until such labelled data exists, the
 glossary is the safe, explainable bridge, and it stays useful afterwards for brand-new terms.
 
-With more resources or budget, I would consider: fine-tuning the bi-encoder (and a cross-encoder
-re-ranker) on labelled KYC query/document pairs with `MultipleNegativesRankingLoss`, the
-retrieve-and-re-rank approach described in
-[this Habr article](https://habr.com/ru/articles/834356/) (it needs real labelled pairs, not
-pairs generated from the glossary); an LLM (OpenAI or Claude) to expand queries or to tag
-documents with their type at indexing time (e.g. "proof of address"); hosted embedding models;
-or a larger local model with a GPU. All of them keep the glossary as a cheap, predictable base.
+With more resources or budget, I would prefer exactly that: a finance model fine-tuned further on
+KYC data, trained on real, labelled advisor queries instead of synthetic ones, on a server with
+enough memory (or a GPU) for a larger base model.
 
 ## Tests
 
