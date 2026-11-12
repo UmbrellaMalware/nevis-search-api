@@ -60,9 +60,8 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
-    client_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("clients.id", ondelete="CASCADE"), index=True
-    )
+    # Indexed by uq_documents_client_content_hash (client_id is its first column).
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"))
     title: Mapped[str]
     content: Mapped[str]
     # SHA-256 of the UTF-8 content; unique per client (uq_documents_client_content_hash).
@@ -81,7 +80,6 @@ class Document(Base):
         ),
         default=SummaryStatus.PENDING,
     )
-    summary_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     summary_error: Mapped[str | None]
 
     client: Mapped[Client] = relationship(back_populates="documents", lazy="raise")
@@ -103,9 +101,8 @@ class DocumentSearchChunk(Base):
     __tablename__ = "document_search_chunks"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), index=True
-    )
+    # Indexed by uq_document_search_chunks_position (document_id is its first column).
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     chunk_index: Mapped[int]
     content: Mapped[str]
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))

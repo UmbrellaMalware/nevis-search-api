@@ -34,7 +34,8 @@ class Summarizer(Protocol):
 
 class OpenAISummarizer:
     def __init__(self, api_key: str, model: str) -> None:
-        self._client = AsyncOpenAI(api_key=api_key)
+        # The SDK's defaults (600 s timeout, 2 hidden retries) could hold the queue for ~30 min.
+        self._client = AsyncOpenAI(api_key=api_key, timeout=60, max_retries=0)
         self._model = model
 
     async def summarize(self, title: str, content: str) -> str:
@@ -56,7 +57,6 @@ async def summarize_next(session: AsyncSession, summarizer: Summarizer) -> bool:
         await session.rollback()
         return False
 
-    document.summary_attempts += 1
     try:
         document.summary = await summarizer.summarize(document.title, document.content)
         document.summary_status = SummaryStatus.READY

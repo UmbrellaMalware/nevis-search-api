@@ -22,6 +22,9 @@ docker compose up --build
 - API: http://localhost:8000
 - Swagger UI: http://localhost:8000/docs
 
+Set `OPENAI_API_KEY` in `.env` to get document summaries: without it the `worker` service exits
+and summaries stay `pending`. Everything else works without it.
+
 ## Design notes
 
 - **Document indexing is synchronous.** `POST /clients/{id}/documents` splits the content into

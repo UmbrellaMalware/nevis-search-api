@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, Text, func, literal, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.exceptions import DocumentAlreadyExistsError
 from app.models import Document, DocumentSearchChunk, SummaryStatus
@@ -124,11 +125,16 @@ class DocumentRepository:
         return await self._load(best.top(limit))
 
     async def _load(self, top: list[tuple[uuid.UUID, str, float]]) -> list[DocumentMatch]:
-        """Fetch the documents for `(document id, snippet, score)` rows, keeping their order."""
+        """Fetch the documents for `(document id, snippet, score)` rows, keeping their order.
+
+        Without `content` (up to 100k characters each): search results never show it.
+        """
         if not top:
             return []
         documents = await self._session.scalars(
-            select(Document).where(Document.id.in_([doc_id for doc_id, _, _ in top]))
+            select(Document)
+            .where(Document.id.in_([doc_id for doc_id, _, _ in top]))
+            .options(defer(Document.content))
         )
         by_id = {doc.id: doc for doc in documents}
         return [
