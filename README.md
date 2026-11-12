@@ -36,20 +36,13 @@ and summaries stay `pending`. Everything else works without it.
   size indexing takes a couple of seconds, which comfortably covers statements, contracts and
   bills. Larger documents get `422`.
 - **Summaries are asynchronous.** A separate `worker` service (`python -m app.worker`) generates
-  them with OpenAI `gpt-4.1-mini`, using Postgres as its job queue: a new document is stored with
-  `summary_status = pending` in the same transaction, so no job is lost if a process crashes.
-  The worker checks for pending documents every 2 seconds and takes one with
-  `FOR UPDATE SKIP LOCKED`, so several workers can run side by side without doing the same
-  document twice. An OpenAI error marks the summary `failed` with the error text (no retries).
+  them with OpenAI `gpt-4.1-mini`, using Postgres as its job queue.
   Read it with `GET /documents/{id}/summary`; search results include it too.
-- **The same document cannot be uploaded twice for a client.** A SHA-256 hash of the content is
-  unique per client; a re-upload (even under another title) gets `409` with the existing
-  document's id.
 - **Document content lives in Postgres.** The API accepts plain text, which Postgres stores
   efficiently (TOAST), and keeping it next to its chunks means a document, its embeddings and
   its summary job are written in a single transaction.
 
-### What I would change for production
+### What I would change for production and scalability
 
 The choices above keep the assignment simple and match the given API contract. In a real
 deployment I would:
