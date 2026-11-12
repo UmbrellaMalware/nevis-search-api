@@ -1,9 +1,16 @@
 # Nevis Search API
 
-Search API across clients and their documents: substring/fuzzy matching on client fields and
-semantic (Sentence-BERT) search over document content.
+Search API for a wealth-management firm: one `GET /search` across clients and their documents.
+Clients are found by email, name or description, including partial words and typos
+(`NevisWealth` -> `john.doe@neviswealth.com`); documents are found by meaning, with a
+Sentence-BERT model fine-tuned on wealth-management text and a domain synonym glossary
+(`address proof` -> a utility bill), plus exact terms such as an IBAN.
 
-> Work in progress — full setup instructions and examples will be added.
+- **Live:** https://neviswealthhometask.online (Swagger UI at
+  [`/docs`](https://neviswealthhometask.online/docs)); every endpoint except `/health` and the
+  docs needs the `X-API-Key` header, the key is shared separately.
+- **Stack:** Python 3.14, FastAPI, PostgreSQL 18 with pgvector and pg_trgm, SQLAlchemy +
+  Alembic, Docker Compose, Traefik (HTTPS), GitHub Actions (tests, build, deploy).
 
 ## Quick start
 
