@@ -60,7 +60,7 @@ never have to be compared directly:
 | documents: Postgres full-text on chunks | exact terms embeddings miss | an IBAN or account number |
 
 Before that, the query is expanded with domain synonyms from the `search_synonyms` table
-(see below). Semantic matches below a cosine similarity of `0.35` are dropped, so an unrelated
+(see below). Semantic matches below a cosine similarity of `0.30` are dropped, so an unrelated
 query such as `weather forecast` returns an empty list instead of "the least bad" documents.
 
 ## Search quality: the embedding trade-off
@@ -139,6 +139,28 @@ with KYC / wealth-management concepts by migration `0002`, and can be extended w
 ```sql
 INSERT INTO search_synonyms (term, synonym) VALUES ('proof of address', 'electricity bill');
 ```
+
+#### Known limitation: the glossary does not scale for free
+
+Every synonym that fires becomes one more vector, and every vector is one more embedding and one
+more vector-index query per semantic retriever (clients and documents). The cost depends on how
+many synonyms a query hits, not on the glossary's size: `investment strategy` costs 1 vector,
+`address proof` 6, `proof of address and source of funds` 10. A glossary that grows in breadth
+is fine; one where terms collect dozens of synonyms, or long queries hit many terms, makes each
+search proportionally slower.
+
+I did not find a good solution that keeps both quality and the vector index:
+
+- capping the number of synonyms per query bounds the cost, but drops synonyms arbitrarily;
+- one query over all vectors with `LATERAL` saves round trips, but the database still does one
+  index search per vector, so the work is the same and the SQL is harder to maintain;
+- ranking by the nearest of all vectors (`least(...)`) in a single query cannot use the HNSW
+  index and scans the whole table.
+
+In practice this may never matter: the glossary is likely to stay small (a curated list of
+domain concepts, not a thesaurus), and it may not be needed at all with a model trained on the
+firm's own data, which learns these equivalences instead of looking them up (see the
+fine-tuned model below, which already closes much of the gap without the glossary).
 
 ### The fine-tuned model
 
