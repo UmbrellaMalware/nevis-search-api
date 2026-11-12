@@ -71,9 +71,7 @@ class DocumentRepository:
         except IntegrityError as exc:
             if violated_constraint(exc) != CONTENT_HASH_UNIQUE_INDEX:
                 raise
-            existing = await self.find_id_by_content_hash(
-                document.client_id, document.content_hash
-            )
+            existing = await self.find_id_by_content_hash(document.client_id, document.content_hash)
             if existing is None:
                 raise
             raise DocumentAlreadyExistsError(document.client_id, existing) from exc

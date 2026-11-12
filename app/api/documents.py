@@ -8,9 +8,7 @@ from app.exceptions import DocumentNotFoundError
 from app.schemas import ErrorResponse, SummaryOut
 from app.services import summaries as summary_service
 
-router = APIRouter(
-    prefix="/documents", tags=["documents"], dependencies=[Depends(require_api_key)]
-)
+router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(require_api_key)])
 
 
 @router.get(
