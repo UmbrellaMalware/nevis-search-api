@@ -152,8 +152,6 @@ search proportionally slower.
 I did not find a good solution that keeps both quality and the vector index:
 
 - capping the number of synonyms per query bounds the cost, but drops synonyms arbitrarily;
-- one query over all vectors with `LATERAL` saves round trips, but the database still does one
-  index search per vector, so the work is the same and the SQL is harder to maintain;
 - ranking by the nearest of all vectors (`least(...)`) in a single query cannot use the HNSW
   index and scans the whole table.
 
