@@ -9,7 +9,7 @@ from sqlalchemy.orm import QueryableAttribute
 
 from app.exceptions import EmailAlreadyExistsError
 from app.models import Client
-from app.repositories.best_scores import BestScores
+from app.utils.best_scores import BestScores
 
 EMAIL_UNIQUE_INDEX = "uq_clients_email_lower"
 
@@ -36,13 +36,7 @@ class ClientRepository:
         return bool(await self._session.scalar(select(exists().where(Client.id == client_id))))
 
     async def add(self, client: Client) -> Client:
-        """Insert a client. Raises EmailAlreadyExistsError if the email is taken (any case).
-
-        Duplicates are detected by the unique index on lower(email), not by checking first:
-        with "SELECT exists, then INSERT" two concurrent requests can both see "free" and both
-        insert. The index is the only check the database enforces atomically, and it costs no
-        extra query.
-        """
+        """Insert a client. Raises EmailAlreadyExistsError if the email is taken (any case)."""
         self._session.add(client)
         try:
             await self._session.flush()

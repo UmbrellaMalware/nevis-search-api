@@ -1,4 +1,10 @@
 from collections.abc import Hashable
+from typing import NamedTuple
+
+
+class Scored[V](NamedTuple):
+    value: V
+    score: float
 
 
 class BestScores[K: Hashable, V]:
@@ -17,15 +23,15 @@ class BestScores[K: Hashable, V]:
     """
 
     def __init__(self) -> None:
-        self._best: dict[K, tuple[V, float]] = {}
+        self._best: dict[K, Scored[V]] = {}
 
     def offer(self, key: K, value: V, score: float) -> None:
         """Keep `value` if `key` is new or `score` beats the score kept so far."""
         current = self._best.get(key)
-        if current is None or score > current[1]:
-            self._best[key] = (value, score)
+        if current is None or score > current.score:
+            self._best[key] = Scored(value, score)
 
     def top(self, limit: int) -> list[tuple[K, V, float]]:
         """The `limit` keys with the highest score, best first."""
-        ranked = sorted(self._best.items(), key=lambda item: item[1][1], reverse=True)
-        return [(key, value, score) for key, (value, score) in ranked[:limit]]
+        keys = sorted(self._best, key=lambda key: self._best[key].score, reverse=True)
+        return [(key, self._best[key].value, self._best[key].score) for key in keys[:limit]]

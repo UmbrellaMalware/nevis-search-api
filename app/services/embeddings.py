@@ -38,8 +38,8 @@ class Embedder:
 
         "utility bill" -> [0.01, ...]  (one 384-dim vector)
         """
-        [vector] = await self.embed([text])
-        return vector
+        vectors = await self.embed([text])  # a list with exactly one vector
+        return vectors[0]
 
 
 @lru_cache

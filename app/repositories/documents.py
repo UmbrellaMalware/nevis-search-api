@@ -7,7 +7,7 @@ from sqlalchemy import ColumnElement, Text, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Document, DocumentSearchChunk
-from app.repositories.best_scores import BestScores
+from app.utils.best_scores import BestScores
 
 FTS_CONFIG = "english"
 
@@ -61,6 +61,8 @@ class DocumentRepository:
         tsquery: ColumnElement[Any] = func.websearch_to_tsquery(FTS_CONFIG, literal(query, Text))
         for phrase in phrases:
             tsquery = tsquery.op("||")(func.phraseto_tsquery(FTS_CONFIG, literal(phrase, Text)))
+        # Postgres "text search rank, cover density": higher when the matched words occur
+        # often and close together in the chunk ("utility bill" beats "utility ... bill").
         rank = func.ts_rank_cd(DocumentSearchChunk.search_tsv, tsquery)
 
         rows = await self._session.execute(
