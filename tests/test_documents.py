@@ -25,7 +25,7 @@ async def test_create_document_returns_201(
     assert body["title"] == DOCUMENT["title"]
     assert body["content"] == DOCUMENT["content"]
     assert body["created_at"]
-    assert body["summary_status"] == "pending"
+    assert body["summary_status"] == "not_requested"
     assert body["summary"] is None
 
 

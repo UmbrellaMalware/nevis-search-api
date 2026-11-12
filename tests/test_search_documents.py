@@ -28,7 +28,7 @@ async def test_document_hit_shape(search: Search, corpus: dict[str, str]) -> Non
 
     assert hit["document"]["id"] == corpus["Utility bill"]
     assert hit["document"]["client_id"] == corpus["john.doe@neviswealth.com"]
-    assert hit["document"]["summary_status"] == "pending"
+    assert hit["document"]["summary_status"] == "not_requested"
     assert "content" not in hit["document"]
     assert "utility bill" in hit["snippet"].lower()
     assert hit["score"] > 0

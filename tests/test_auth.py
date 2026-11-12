@@ -38,3 +38,4 @@ async def test_search_requires_key(client: AsyncClient) -> None:
 
 async def test_summary_requires_key(client: AsyncClient) -> None:
     assert (await client.get(f"/documents/{uuid.uuid7()}/summary")).status_code == 401
+    assert (await client.post(f"/documents/{uuid.uuid7()}/summary")).status_code == 401

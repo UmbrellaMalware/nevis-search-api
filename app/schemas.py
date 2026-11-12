@@ -67,7 +67,8 @@ class SummaryOut(BaseModel):
 
     document_id: uuid.UUID
     status: SummaryStatus = Field(
-        description="`pending` until the worker has run, then `ready` or `failed`."
+        description="`not_requested` until a summary is requested, `pending` until the worker "
+        "has run, then `ready` or `failed`."
     )
     summary: str | None = Field(description="The summary, once `status` is `ready`.")
     error: str | None = Field(description="Why the summary could not be made (`failed`).")

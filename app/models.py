@@ -29,7 +29,8 @@ def _utcnow() -> datetime:
 
 
 class SummaryStatus(StrEnum):
-    PENDING = "pending"
+    NOT_REQUESTED = "not_requested"  # nobody asked for a summary yet
+    PENDING = "pending"  # requested, waiting for the worker
     READY = "ready"
     FAILED = "failed"
 
@@ -70,7 +71,8 @@ class Document(Base):
         DateTime(timezone=True), default=_utcnow, server_default=func.now()
     )
 
-    # Summary is produced asynchronously by the worker; these columns double as its job queue.
+    # Summary is made on request (POST /documents/{id}/summary) by the worker; these columns
+    # double as its job queue.
     summary: Mapped[str | None]
     summary_status: Mapped[SummaryStatus] = mapped_column(
         Enum(
@@ -78,7 +80,7 @@ class Document(Base):
             name="summary_status",
             values_callable=lambda e: [m.value for m in e],
         ),
-        default=SummaryStatus.PENDING,
+        default=SummaryStatus.NOT_REQUESTED,
     )
     summary_error: Mapped[str | None]
 

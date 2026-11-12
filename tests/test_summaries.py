@@ -1,70 +1,103 @@
 import uuid
 
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.repositories.documents import DocumentRepository
-from app.services.summaries import summarize_next
+from app.services.summaries import Summarizer, summarize_next
 from tests.helpers import FailingSummarizer, FakeSummarizer
 
 
-async def _summary(client: AsyncClient, document_id: object) -> dict[str, object]:
+async def _get_summary(client: AsyncClient, document_id: object) -> dict[str, object]:
     response = await client.get(f"/documents/{document_id}/summary")
     assert response.status_code == 200, response.text
     body: dict[str, object] = response.json()
     return body
 
 
-async def test_new_document_summary_is_pending(
-    client: AsyncClient, created_document: dict[str, object]
+async def _request_summary(client: AsyncClient, document_id: object) -> Response:
+    return await client.post(f"/documents/{document_id}/summary")
+
+
+async def _run_worker_once(db: AsyncEngine, summarizer: Summarizer) -> bool:
+    async with AsyncSession(db) as session:
+        return await summarize_next(session, summarizer)
+
+
+async def test_new_document_summary_is_not_requested(
+    client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
 ) -> None:
-    assert await _summary(client, created_document["id"]) == {
+    assert await _get_summary(client, created_document["id"]) == {
         "document_id": created_document["id"],
-        "status": "pending",
+        "status": "not_requested",
         "summary": None,
         "error": None,
     }
+    # Nothing is queued until someone asks for it.
+    assert await _run_worker_once(db, FakeSummarizer()) is False
 
 
-async def test_worker_stores_the_summary(
+async def test_request_then_poll_until_ready(
     client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
 ) -> None:
     summarizer = FakeSummarizer("March electricity bill, EUR 84.20.")
 
-    async with AsyncSession(db) as session:
-        assert await summarize_next(session, summarizer) is True
+    response = await _request_summary(client, created_document["id"])
+    assert response.status_code == 202
+    assert response.json()["status"] == "pending"
 
+    assert await _run_worker_once(db, summarizer) is True
     assert summarizer.calls == [("Utility bill", "Electricity bill for March 2026, EUR 84.20.")]
-    summary = await _summary(client, created_document["id"])
+    summary = await _get_summary(client, created_document["id"])
     assert summary["status"] == "ready"
     assert summary["summary"] == "March electricity bill, EUR 84.20."
 
 
-async def test_llm_error_marks_summary_failed(
+async def test_requesting_a_ready_summary_returns_it_without_a_new_job(
     client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
 ) -> None:
-    async with AsyncSession(db) as session:
-        assert await summarize_next(session, FailingSummarizer()) is True
+    await _request_summary(client, created_document["id"])
+    await _run_worker_once(db, FakeSummarizer("Done."))
 
-    summary = await _summary(client, created_document["id"])
-    assert summary["status"] == "failed"
-    assert summary["error"] == "OpenAI is unavailable"
+    response = await _request_summary(client, created_document["id"])
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == "Done."
+    assert await _run_worker_once(db, FakeSummarizer()) is False
 
 
-async def test_summarised_document_is_not_taken_again(
-    created_document: dict[str, object], db: AsyncEngine
+async def test_requesting_twice_while_pending_queues_one_job(
+    client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
 ) -> None:
-    summarizer = FakeSummarizer()
-    async with AsyncSession(db) as session:
-        await summarize_next(session, summarizer)
-        assert await summarize_next(session, summarizer) is False
+    await _request_summary(client, created_document["id"])
+    assert (await _request_summary(client, created_document["id"])).status_code == 202
 
+    summarizer = FakeSummarizer()
+    await _run_worker_once(db, summarizer)
+    await _run_worker_once(db, summarizer)
     assert len(summarizer.calls) == 1
 
 
-async def test_document_locked_by_another_worker_is_skipped(
-    created_document: dict[str, object], db: AsyncEngine
+async def test_llm_error_marks_failed_and_a_new_request_retries(
+    client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
 ) -> None:
+    await _request_summary(client, created_document["id"])
+    await _run_worker_once(db, FailingSummarizer())
+
+    failed = await _get_summary(client, created_document["id"])
+    assert failed["status"] == "failed"
+    assert failed["error"] == "OpenAI is unavailable"
+
+    retry = await _request_summary(client, created_document["id"])
+    assert retry.status_code == 202
+    assert retry.json() == {**failed, "status": "pending", "error": None}
+    assert await _run_worker_once(db, FakeSummarizer()) is True
+
+
+async def test_document_locked_by_another_worker_is_skipped(
+    client: AsyncClient, created_document: dict[str, object], db: AsyncEngine
+) -> None:
+    await _request_summary(client, created_document["id"])
     async with AsyncSession(db) as first, AsyncSession(db) as second:
         locked = await DocumentRepository(first).lock_next_pending_summary()
         assert locked is not None
@@ -73,12 +106,8 @@ async def test_document_locked_by_another_worker_is_skipped(
         assert await summarize_next(second, FakeSummarizer()) is False
 
 
-async def test_empty_queue_returns_false(db: AsyncEngine) -> None:
-    async with AsyncSession(db) as session:
-        assert await summarize_next(session, FakeSummarizer()) is False
-
-
 async def test_unknown_document_returns_404(client: AsyncClient) -> None:
-    response = await client.get(f"/documents/{uuid.uuid7()}/summary")
+    unknown = uuid.uuid7()
 
-    assert response.status_code == 404
+    assert (await client.get(f"/documents/{unknown}/summary")).status_code == 404
+    assert (await _request_summary(client, unknown)).status_code == 404

@@ -23,7 +23,7 @@ docker compose up --build
 - Swagger UI: http://localhost:8000/docs
 
 Set `OPENAI_API_KEY` in `.env` to get document summaries: without it the `worker` service exits
-and summaries stay `pending`. Everything else works without it.
+and requested summaries stay `pending`. Everything else works without it.
 
 ## Design notes
 
@@ -35,12 +35,13 @@ and summaries stay `pending`. Everything else works without it.
   unbounded document could hold the CPU for a long time and stall every other request. At this
   size indexing takes a couple of seconds, which comfortably covers statements, contracts and
   bills. Larger documents get `422`.
-- **Summaries are asynchronous.** A separate `worker` service (`python -m app.worker`) generates
-  them with OpenAI `gpt-4.1-mini`, using Postgres as its job queue.
-  Read it with `GET /documents/{id}/summary`; search results include it too.
+- **Summaries are made on request.** `POST /documents/{id}/summary` queues one (`202`), then the
+  client polls `GET /documents/{id}/summary` until `status` is `ready` or `failed`. A separate
+  `worker` service (`python -m app.worker`) generates them with OpenAI `gpt-4.1-mini`, using
+  Postgres as its job queue. Search results include the summary once it is ready.
 - **Document content lives in Postgres.** The API accepts plain text, which Postgres stores
-  efficiently (TOAST), and keeping it next to its chunks means a document, its embeddings and
-  its summary job are written in a single transaction.
+  efficiently (TOAST), and keeping it next to its chunks means a document and its embeddings
+  are written in a single transaction.
 
 ### What I would change for production and scalability
 
