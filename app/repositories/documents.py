@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DocumentAlreadyExistsError
-from app.models import Document, DocumentSearchChunk
+from app.models import Document, DocumentSearchChunk, SummaryStatus
 from app.repositories.constraints import violated_constraint
 from app.utils.best_scores import BestScores
 
@@ -28,6 +28,24 @@ class DocumentRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get(self, document_id: uuid.UUID) -> Document | None:
+        return await self._session.get(Document, document_id)
+
+    async def lock_next_pending_summary(self) -> Document | None:
+        """The oldest document still waiting for a summary, locked until the transaction ends.
+
+        `FOR UPDATE SKIP LOCKED` lets several workers run side by side: each takes a different
+        document, none waits for another. If a worker dies, its transaction is rolled back, the
+        lock is released and the document is picked up again.
+        """
+        return await self._session.scalar(
+            select(Document)
+            .where(Document.summary_status == SummaryStatus.PENDING)
+            .order_by(Document.created_at)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
 
     async def find_id_by_content_hash(
         self, client_id: uuid.UUID, content_hash: bytes

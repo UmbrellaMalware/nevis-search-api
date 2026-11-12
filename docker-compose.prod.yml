@@ -40,6 +40,10 @@ services:
       - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.services.api.loadbalancer.server.port=8000
 
+  worker:
+    image: ${IMAGE}:${IMAGE_TAG}
+    restart: unless-stopped
+
   db:
     restart: unless-stopped
 

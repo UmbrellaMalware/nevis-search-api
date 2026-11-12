@@ -133,3 +133,19 @@ def search(client: AsyncClient) -> Search:
         return hits
 
     return run
+
+
+# --- Summaries ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def created_document(
+    client: AsyncClient, created_client: dict[str, object]
+) -> dict[str, object]:
+    response = await client.post(
+        f"/clients/{created_client['id']}/documents",
+        json={"title": "Utility bill", "content": "Electricity bill for March 2026, EUR 84.20."},
+    )
+    assert response.status_code == 201, response.text
+    body: dict[str, object] = response.json()
+    return body

@@ -17,6 +17,11 @@ class ClientNotFoundError(AppError):
         super().__init__(f"Client '{client_id}' not found")
 
 
+class DocumentNotFoundError(AppError):
+    def __init__(self, document_id: uuid.UUID) -> None:
+        super().__init__(f"Document '{document_id}' not found")
+
+
 class DocumentAlreadyExistsError(AppError):
     def __init__(self, client_id: uuid.UUID, document_id: uuid.UUID) -> None:
         self.document_id = document_id

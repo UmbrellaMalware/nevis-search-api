@@ -62,6 +62,13 @@ class DocumentDTO(DocumentBriefDTO):
     content: str
 
 
+class SummaryDTO(_DTO):
+    document_id: uuid.UUID
+    status: SummaryStatus
+    summary: str | None
+    error: str | None  # why the summary failed (status = failed)
+
+
 # --- Search ---------------------------------------------------------------------------------
 
 

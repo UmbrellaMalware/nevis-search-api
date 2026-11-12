@@ -38,6 +38,17 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Generates document summaries in the background (needs OPENAI_API_KEY).
+  worker:
+    image: nevis-search-api
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nevis}:${POSTGRES_PASSWORD:-nevis}@db:5432/${POSTGRES_DB:-nevis}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # --- Tests: `docker compose --profile test run --rm tests` ---
   db-test:
     image: pgvector/pgvector:0.8.7-pg18

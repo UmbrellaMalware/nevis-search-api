@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     search_min_similarity: float = 0.30
     search_result_limit: int = 20
 
+    # Document summaries (app/worker.py).
+    summary_model: str = "gpt-4.1-mini"
+    summary_poll_interval_seconds: float = 2.0
+
 
 @lru_cache
 def get_settings() -> Settings:

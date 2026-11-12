@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -32,3 +34,7 @@ async def test_health_and_docs_stay_public(client: AsyncClient) -> None:
 
 async def test_search_requires_key(client: AsyncClient) -> None:
     assert (await client.get("/search", params={"q": "x"})).status_code == 401
+
+
+async def test_summary_requires_key(client: AsyncClient) -> None:
+    assert (await client.get(f"/documents/{uuid.uuid7()}/summary")).status_code == 401
