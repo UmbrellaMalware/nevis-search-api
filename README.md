@@ -80,6 +80,14 @@ Before that, the query is expanded with domain synonyms from the `search_synonym
 (see below). Semantic matches below a cosine similarity of `0.30` are dropped, so an unrelated
 query such as `weather forecast` returns an empty list instead of "the least bad" documents.
 
+**Known limitation: long documents can crowd out others.** Document search fetches the 100
+best-matching chunks (5 per result) and keeps the best chunk of each document. A long document
+can have up to ~120 chunks; if one long report fills all 100 slots, other relevant documents
+are not returned. Not fixed yet. The fix: for full-text, keep one row per document in SQL
+(`DISTINCT ON (document_id)`); for semantic search, keep fetching more chunks while excluding
+documents already found, with pgvector's `hnsw.iterative_scan` so the index keeps scanning past
+the excluded ones.
+
 ## Search quality: the embedding trade-off
 
 The assignment's example, `address proof` -> a document containing `utility bill`, needs domain
