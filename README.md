@@ -222,6 +222,8 @@ Requesting a ready summary again returns it with `200` and makes no new LLM call
   client polls `GET /documents/{id}/summary` until `status` is `ready` or `failed`. A separate
   `worker` service (`python -m app.worker`) generates them with OpenAI `gpt-4.1-mini`, using
   Postgres as its job queue. Search results include the summary once it is ready.
+  **Note: the document title and content are sent to OpenAI** to make the summary. Nothing is
+  sent until someone asks for a summary of that document.
 - **Document content lives in Postgres.** The API accepts plain text, which Postgres stores
   efficiently (TOAST), and keeping it next to its chunks means a document and its embeddings
   are written in a single transaction.
@@ -238,6 +240,9 @@ deployment I would:
   `202 Accepted` with an indexing status; workers would fetch the content from S3, chunk and
   embed it in the background. This removes model latency from the request path and lifts the
   document size limit, since large files can be processed (and streamed) asynchronously.
+- **Summarise with a self-hosted open-source model.** Client documents are sensitive, so instead
+  of sending them to OpenAI I would run an open-source LLM on our own GPU server. The documents
+  never leave our infrastructure, and the worker only needs a different `Summarizer`.
 
 ## How search works
 
