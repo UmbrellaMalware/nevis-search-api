@@ -25,6 +25,189 @@ docker compose up --build
 Set `OPENAI_API_KEY` in `.env` to get document summaries: without it the `worker` service exits
 and requested summaries stay `pending`. Everything else works without it.
 
+## API examples
+
+The examples use data from the live deployment. Locally, use
+`http://localhost:8000` and leave the key out if `API_KEY` is empty.
+
+```bash
+API=https://neviswealthhometask.online
+KEY=<your API key>
+```
+
+### Create a client
+
+```bash
+curl -X POST "$API/clients" -H "X-API-Key: $KEY" -H "Content-Type: application/json" -d '{
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@neviswealth.com",
+  "description": "Retired engineer focused on capital preservation"
+}'
+```
+
+`201 Created`:
+
+```json
+{
+  "id": "01a1cec7-c6c4-73e6-b609-ea784ee01037",
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@neviswealth.com",
+  "description": "Retired engineer focused on capital preservation",
+  "social_links": [],
+  "created_at": "2026-11-12T08:02:41.476212Z"
+}
+```
+
+The same email again, in any letter case: `409 Conflict`,
+`{"detail": "A client with email 'JOHN.DOE@neviswealth.com' already exists"}`.
+
+### Add a document to a client
+
+```bash
+curl -X POST "$API/clients/01a1cec7-c6c4-73e6-b609-ea784ee01037/documents" \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" -d '{
+  "title": "Utility bill",
+  "content": "Electricity and gas charges for 14 Elm Grove, Manchester. Amount due 182.40 GBP."
+}'
+```
+
+`201 Created`:
+
+```json
+{
+  "id": "01a1cec7-c7ac-7709-a649-674dc4d45596",
+  "client_id": "01a1cec7-c6c4-73e6-b609-ea784ee01037",
+  "title": "Utility bill",
+  "content": "Electricity and gas charges for 14 Elm Grove, Manchester. Amount due 182.40 GBP.",
+  "created_at": "2026-11-12T08:02:41.708880Z",
+  "summary_status": "not_requested",
+  "summary": null
+}
+```
+
+Unknown client: `404`. The same content again for this client (even under another title): `409`
+with the id of the document that already has it. Content over 100,000 characters: `422`.
+
+### Search
+
+One list of clients and documents, best match first. `type` tells them apart, `matched_by`
+says which retrievers found the item, `score` is the fused rank score (higher is better).
+
+**A company name finds the client by email domain:**
+
+```bash
+curl -G "$API/search" -H "X-API-Key: $KEY" --data-urlencode "q=NevisWealth"
+```
+
+```json
+[
+  {
+    "type": "client",
+    "score": 0.01639344262295082,
+    "matched_by": ["lexical"],
+    "client": {
+      "id": "01a1cec7-c6c4-73e6-b609-ea784ee01037",
+      "first_name": "John",
+      "last_name": "Doe",
+      "email": "john.doe@neviswealth.com",
+      "description": "Retired engineer focused on capital preservation",
+      "social_links": [],
+      "created_at": "2026-11-12T08:02:41.476212Z"
+    }
+  }
+]
+```
+
+A typo works too: `q=neviswelth` returns the same client.
+
+**A concept finds documents that never use its words:**
+
+```bash
+curl -G "$API/search" -H "X-API-Key: $KEY" --data-urlencode "q=address proof"
+```
+
+```json
+[
+  {
+    "type": "document",
+    "score": 0.01639344262295082,
+    "matched_by": ["semantic"],
+    "document": {
+      "id": "01a1cec7-c7ac-7709-a649-674dc4d45596",
+      "client_id": "01a1cec7-c6c4-73e6-b609-ea784ee01037",
+      "title": "Utility bill",
+      "created_at": "2026-11-12T08:02:41.708880Z",
+      "summary_status": "ready",
+      "summary": "The document is a utility bill for electricity and gas charges at 14 Elm Grove, Manchester. It concerns the resident or account holder of this address. The total amount due is £182.40."
+    },
+    "snippet": "Electricity and gas charges for 14 Elm Grove, Manchester. Amount due 182.40 GBP."
+  },
+  {
+    "type": "document",
+    "score": 0.016129032258064516,
+    "matched_by": ["semantic"],
+    "document": {
+      "id": "01a1d0c7-1436-761c-be99-a70ebac5c638",
+      "client_id": "01a1d0c7-10ec-743a-9444-61124cc523b2",
+      "title": "Council tax bill 2026",
+      "created_at": "2026-11-12T17:21:10.198164Z",
+      "summary_status": "ready",
+      "summary": "This document is a council tax bill for the year 2026 from Zurich municipality. It concerns Anna Schmidt for the residence at Seestrasse 12, 8002 Zurich. The amount due is CHF 1,240, payable by 30 April 2026."
+    },
+    "snippet": "Zurich municipality council tax statement for the residence at Seestrasse 12, 8002 Zurich, addressed to Anna Schmidt. Amount due CHF 1,240 by 30 April 2026."
+  }
+]
+```
+
+**An exact identifier is found by full-text search:** `q=CH93 0076 2011 6238 5295 7` returns
+the "Share purchase agreement" that contains this IBAN, with `"matched_by": ["full_text"]`.
+
+**Nothing relevant returns an empty list:** `q=weather forecast` -> `[]`.
+
+### Summarise a document
+
+Summaries are made on request. Ask for one, then poll until it is `ready` (usually a few
+seconds) or `failed`:
+
+```bash
+curl -X POST "$API/documents/01a1d0d7-1563-77ca-8744-ceac9c5cee88/summary" -H "X-API-Key: $KEY"
+```
+
+`202 Accepted`:
+
+```json
+{"document_id": "01a1d0d7-1563-77ca-8744-ceac9c5cee88", "status": "pending", "summary": null, "error": null}
+```
+
+```bash
+curl "$API/documents/01a1d0d7-1563-77ca-8744-ceac9c5cee88/summary" -H "X-API-Key: $KEY"
+```
+
+`200 OK`, a few seconds later:
+
+```json
+{
+  "document_id": "01a1d0d7-1563-77ca-8744-ceac9c5cee88",
+  "status": "ready",
+  "summary": "This document is the annual pension statement from the Swiss Life occupational pension fund for Anna Schmidt, reference number 1794505118. It reports her current retirement savings of CHF 412,300 and a projected annual pension of CHF 27,800 starting at age 65.",
+  "error": null
+}
+```
+
+Requesting a ready summary again returns it with `200` and makes no new LLM call; requesting a
+`failed` one tries again.
+
+### Errors
+
+| status | when | body |
+|---|---|---|
+| `401` | missing or wrong `X-API-Key` | `{"detail": "Invalid or missing API key"}` |
+| `404` | unknown client or document id | `{"detail": "Client '...' not found"}` |
+| `409` | email already used, or the same document already uploaded for the client | `{"detail": "..."}` |
+| `422` | invalid input: bad email, blank or too long query, document over 100,000 characters | `{"detail": ...}` |
+
 ## Design notes
 
 - **Document indexing is synchronous.** `POST /clients/{id}/documents` splits the content into
