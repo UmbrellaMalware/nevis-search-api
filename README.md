@@ -254,6 +254,12 @@ deployment I would:
 - **Summarise with a self-hosted open-source model.** Client documents are sensitive, so instead
   of sending them to OpenAI I would run an open-source LLM on our own GPU server. The documents
   never leave our infrastructure, and the worker only needs a different `Summarizer`.
+- **Consider OpenAI file search as an extra retriever, not a replacement.** On the test set it
+  beats our model on one-word queries and general finance, but is clearly worse on KYC concepts
+  (see "Step 7" below). Added as one more ranked list in the fusion, behind a query parameter, it
+  could cover our model's weak spots; it would need documents uploaded to a vector store on
+  creation, and sends client documents to OpenAI, so it is a product decision as much as a
+  technical one.
 
 ## How search works
 
@@ -412,6 +418,62 @@ puts the electricity bill, the water bill and the council tax bill first (v1 put
 valuation first), and its score against the prod bill rose from 0.21 to 0.30. One-word queries
 still get lower scores than longer ones, so the threshold went down from 0.30 to 0.27, in line
 with the F1-optimal threshold with the glossary (0.27). **This is what the API uses.**
+
+### Step 7: OpenAI file search, the managed alternative
+
+OpenAI also sells search as a service: upload files to a
+[vector store](https://developers.openai.com/api/docs/guides/retrieval), and it splits them into
+chunks, embeds them, and searches them by meaning and by words at once, optionally rewriting the
+query with an LLM first (`rewrite_query`). It is the same design as this API (hybrid search,
+results merged by rank, a score threshold, filtering by attributes such as a client id), fully
+managed. I uploaded the 42 test documents to a vector store and ran the same queries:
+
+| engine | glossary wording | paraphrases | general finance | short | filter quality (F1) @ threshold |
+|---|---|---|---|---|---|
+| **ours: MiniLM fine-tuned v2 + glossary** | **0.82** / MRR **1.00** | **0.72** / MRR **0.94** | 0.97 / MRR **1.00** | 0.79 / MRR **1.00** | **0.66** @ 0.27 |
+| OpenAI file search | 0.50 / MRR 0.58 | 0.57 / MRR 0.62 | **0.99** / MRR 0.93 | **0.85** / MRR 0.83 | 0.50 @ 0.46 |
+| OpenAI file search + `rewrite_query` | 0.48 / MRR 0.55 | 0.66 / MRR 0.75 | **0.99** / MRR 0.93 | **0.85** / MRR 0.83 | 0.52 @ 0.47 |
+
+OpenAI is better on general finance and on one-word queries, where matching the words helps. It is
+clearly worse on KYC concepts, the domain knowledge this assignment is about: for `address proof`
+its best result is the certificate of *tax* residence. Its scores also separate right from wrong
+results less well (F1 0.50-0.52 vs 0.66). On top of that it sends every document and query to a
+third party, adds a network round trip per search, and costs money per search and per stored GB.
+So I did not add it to the API; it is a reasonable option for a team that wants no search
+infrastructure of its own and has no KYC-specific vocabulary.
+
+### What the search finds: examples
+
+A few of the 42 test documents (title and text, as they are stored):
+
+| document | text |
+|---|---|
+| British Gas bill | Electricity and gas charges for 1 Jan - 31 Mar 2026. Account holder Sarah Mitchell, 14 Elm Grove, Manchester M14 6PQ. Amount due 182.40 GBP. |
+| Thames Water invoice | Water and sewerage charges for 2026/27 for the property at 3 Riverside Walk, Reading RG1 8DB. Customer: Tom Baker. |
+| Council tax bill 2026/27 | Manchester City Council. Band C property at 14 Elm Grove. Annual charge 1,812 GBP payable in 10 instalments. |
+| Payslip March 2026 | Gross salary 7,500 GBP, income tax 1,620, National Insurance 410, net pay 5,470. Employer: Acme Ltd. |
+| Workplace pension annual statement | Defined contribution pension with Aviva, fund value 312,000 GBP, projected retirement income 18,500 GBP a year at age 67. |
+| Last will and testament | Will of Thomas Baker leaving the residuary estate to his two children in equal shares. |
+| Grant of probate | Probate granted to Anna Schmidt as executor of the estate of the late Helmut Schmidt; estate valued at 1.2 million EUR. |
+
+What each engine returns above its threshold (top 5, best first; the semantic retriever only, the
+API also adds full-text and client matches):
+
+| query | ours (v2 + glossary) | OpenAI file search |
+|---|---|---|
+| `address proof` | Council tax bill, mortgage statement, tenancy agreement, British Gas bill, Thames Water invoice | Certificate of tax residence |
+| `address` | *(nothing above 0.27; best: Council tax bill and British Gas bill, 0.265)* | British Gas bill, Thames Water invoice, tenancy agreement, Council tax bill, mortgage statement |
+| `evidence of residence` | Council tax bill, British Gas bill, Certificate of tax residence, Thames Water invoice | Certificate of tax residence, National identity card |
+| `where does the client's money come from` | *(nothing above 0.27)* | HSBC current account statement |
+| `pension` | Workplace pension statement, SIPP transfer request, client complaint letter | Workplace pension statement, SIPP transfer request, client fee agreement, client complaint letter |
+| `inheritance` | Will, annual review meeting notes, trust deed, Grant of probate | Discretionary trust deed |
+| `weather forecast` | *(nothing)* | *(nothing)* |
+
+Neither engine is perfect: ours misses `address` on these test documents by 0.005 (the demo
+documents on prod are found) and finds nothing for the long question about money (best 0.17); OpenAI misses
+the KYC meaning of `address proof` and `evidence of residence`. The two fail on different
+queries, so combining them (both as retrievers in the rank fusion) would likely beat either one;
+I would test that before paying for it.
 
 ### Results
 
