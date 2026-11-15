@@ -270,7 +270,7 @@ never have to be compared directly:
 | documents: Postgres full-text on chunks | exact terms embeddings miss | an IBAN or account number |
 
 Before that, the query is expanded with domain synonyms from the `search_synonyms` table
-(see below). Semantic matches below a cosine similarity of `0.30` are dropped, so an unrelated
+(see below). Semantic matches below a cosine similarity of `0.27` are dropped, so an unrelated
 query such as `weather forecast` returns an empty list instead of "the least bad" documents.
 
 **Known limitation: long documents can crowd out others.** Document search fetches the 100
@@ -291,8 +291,8 @@ attempts.
 The test set was generated with an AI assistant (an LLM): a small set of the kind of content a
 wealth advisor searches, 42 documents (KYC, income and source of funds, tax, investments,
 pensions, estate planning, insurance, plus a few unrelated ones), written the way real documents
-read, so a utility bill never says "proof of address". For 38 queries it lists which documents
-are the correct answers. The queries come in three groups:
+read, so a utility bill never says "proof of address". For 44 queries it lists which documents
+are the correct answers. The queries come in four groups:
 
 - **Glossary wording** (7 queries): KYC concepts phrased the way the synonym glossary phrases
   them, e.g. `address proof`, `photo id`.
@@ -302,6 +302,8 @@ are the correct answers. The queries come in three groups:
   first group uses the glossary's own wording, so it flatters the glossary.
 - **General finance** (23 queries): topics the glossary does not cover, e.g. `pension`,
   `estate planning`.
+- **Short** (6 queries, added in step 6): one or two words, e.g. `address`, `residence`,
+  `earnings`. Added after `address` failed on prod (see step 6).
 
 Plus 5 "noise" queries (e.g. `weather forecast`) that should return nothing.
 
@@ -371,7 +373,7 @@ wealth-management documents and advisor-style queries (details in
 [The fine-tuned model](#the-fine-tuned-model)). Same size and speed as the original, so it still
 runs on the server. Paraphrases go from 0.26 to 0.60, ahead of OpenAI `3-large`; general finance
 improves slightly (0.92 -> 0.94), so nothing was forgotten. Together with the glossary it has the
-best filter quality of all setups (F1 0.64). **This is what the API uses.**
+best filter quality of all setups (F1 0.64).
 
 ```mermaid
 xychart-beta
@@ -381,17 +383,51 @@ xychart-beta
     bar [0.26, 0.26, 0.37, 0.41, 0.60]
 ```
 
+### Step 6: a bug on prod, and fine-tuning v2
+
+On prod, `address proof` found the utility bill, but `address` alone found nothing. Two reasons:
+`address` is not a glossary term, and the model scored it only 0.21 against the bill. Looking at
+the training data showed why: every training utility bill had a line "Billing address: ...", so
+the model had learned to match the *word* "address", not the concept. The prod bill
+("Electricity and gas charges for 14 Elm Grove, Manchester") has no such word. There were also
+no one- or two-word queries in the training data at all.
+
+So I added the "short" query group to the test set (with `address`, which training is not
+allowed to see) and generated the training data again: the words "address", "identity",
+"income", "wealth" and "residence" are banned from document text, fields are written inline
+("Supply at 14 Rosewood Drive") instead of labelled, every document gets short queries, and there
+is more of it (440 documents, 3,497 queries instead of 264 and 1,584). Then I trained longer
+(10 epochs instead of 3).
+
+The new model (v2) is better on every group without the glossary, and much better at putting the
+right document first (MRR: "how high is the first correct result", 1.00 = always first):
+
+| model | glossary wording | paraphrases | general finance | short | filter quality (F1) @ threshold |
+|---|---|---|---|---|---|
+| v1 (step 5) | 0.59 | 0.60 / MRR 0.68 | 0.94 | 0.66 / MRR 0.62 | 0.52 @ 0.18 |
+| **v2** | **0.71** | **0.72 / MRR 0.94** | **0.97** | **0.79 / MRR 1.00** | **0.66** @ 0.22 |
+
+Three training runs with different random seeds gave the same picture. For `address`, v2 now
+puts the electricity bill, the water bill and the council tax bill first (v1 put a property
+valuation first), and its score against the prod bill rose from 0.21 to 0.30. One-word queries
+still get lower scores than longer ones, so the threshold went down from 0.30 to 0.27, in line
+with the F1-optimal threshold with the glossary (0.27). **This is what the API uses.**
+
 ### Results
 
-The five best setups (numbers are "found in top 5"; filter quality is F1 at the best threshold):
+The best setups (numbers are "found in top 5"; filter quality is F1 at the best threshold):
 
 | setup | glossary wording | paraphrases | general finance | filter quality (F1) @ threshold |
 |---|---|---|---|---|
-| **MiniLM fine-tuned + glossary** *(used)* | **0.85** | **0.60** | 0.94 | **0.64** @ 0.31 |
-| MiniLM fine-tuned, no glossary | 0.59 | **0.60** | 0.94 | 0.53 @ 0.24 |
-| MiniLM + glossary | 0.85 | 0.26 | 0.92 | 0.63 @ 0.35 |
-| `empire-embed` + glossary | 0.85 | 0.26 | 0.95 | 0.63 @ 0.43 |
-| OpenAI `text-embedding-3-large` + glossary | 0.85 | 0.41 | **0.99** | 0.61 @ 0.36 |
+| **MiniLM fine-tuned v2 + glossary** *(used)* | 0.82 | **0.72** | **0.97** | **0.66** @ 0.27 |
+| MiniLM fine-tuned v1 + glossary | **0.85** | 0.60 | 0.94 | 0.64 @ 0.31 |
+| MiniLM fine-tuned v1, no glossary | 0.59 | 0.60 | 0.94 | 0.53 @ 0.24 |
+| MiniLM + glossary | **0.85** | 0.26 | 0.92 | 0.63 @ 0.35 |
+| `empire-embed` + glossary | **0.85** | 0.26 | 0.95 | 0.63 @ 0.43 |
+| OpenAI `text-embedding-3-large` + glossary | **0.85** | 0.41 | 0.99 | 0.61 @ 0.36 |
+
+The v2 F1 is measured with the short queries included (a harder test); the other rows come from
+the 38-query set of steps 1-5. On the same 44 queries, v1 + glossary gets F1 0.59.
 
 Also measured, and behind these: `bge-base-financial-matryoshka` (F1 0.55 with the glossary),
 OpenAI `text-embedding-3-small` (0.58), and every model without the glossary (0.40-0.53).
@@ -403,7 +439,10 @@ What I take from it:
 - **Bigger or hosted is not automatically better.** OpenAI ranks general finance best, but the
   real gap was domain knowledge, and a small model trained on the domain closed more of it.
 - **The threshold follows the model.** The fine-tuned model's similarities are lower overall, so
-  the API keeps results above 0.30 (the F1-optimal value on this test set is 0.31).
+  the API keeps results above 0.27 (the F1-optimal value for v2 with the glossary).
+- **Look at what the model learned, not only at the score.** v1 scored well, but had learned a
+  shortcut (the word "address") that the generated data made possible. The test set did not
+  catch it until a real query on prod did.
 - **Caveats.** The documents, queries and answers are AI-generated and few, so differences of a
   few points are noise. A real evaluation needs real, anonymised advisor queries, labelled by
   people who know the domain. Prod check: `evidence of residence` still finds nothing on the
@@ -442,11 +481,11 @@ fine-tuned model below, which already closes much of the gap without the glossar
 
 [`UmbrellaMalware/all-MiniLM-L6-v2-wealth`](https://huggingface.co/UmbrellaMalware/all-MiniLM-L6-v2-wealth)
 is `all-MiniLM-L6-v2` fine-tuned on **synthetic** data: an LLM
-(`gpt-4.1-mini`) wrote 264 realistic documents across 44 wealth-management categories and 1,584
-adviser-style queries for them. It never saw the benchmark documents or queries, and generated
-queries close to benchmark ones were filtered out. Training takes ~8 seconds on a laptop GPU;
-three training runs gave 0.58-0.60 on paraphrases. The model card on Hugging Face documents
-data, training and limitations.
+(`gpt-4.1-mini`) wrote 440 realistic documents across 44 wealth-management categories and 3,497
+adviser-style queries for them (v2, see step 6). It never saw the benchmark documents or queries,
+and generated queries close to benchmark ones were filtered out. Training takes ~47 seconds on a
+laptop GPU; three training runs gave the same results. The API pins the v2 revision; the model
+card on Hugging Face documents data, training, both versions and limitations.
 
 Honest limits: the training documents are LLM-generated and cover the same categories as the
 benchmark, so the gain on real documents is probably smaller; it should be validated (and the

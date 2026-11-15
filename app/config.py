@@ -14,11 +14,11 @@ class Settings(BaseSettings):
     # all-MiniLM-L6-v2 fine-tuned for wealth-management search (see README, "Search quality").
     # Pinned to a commit of the Hugging Face repo so builds are reproducible.
     embedding_model: str = "UmbrellaMalware/all-MiniLM-L6-v2-wealth"
-    embedding_model_revision: str | None = "68e3018b96bc14bb1aed8ecd0623688123f0e41d"
+    embedding_model_revision: str | None = "168226dd97d0681043f6cd516ed4ff231a13b2df"
 
     # Search tuning. The similarity floor is calibrated for the model above on the benchmark
     # (see README): it maximises F1 when combined with the synonym glossary.
-    search_min_similarity: float = 0.30
+    search_min_similarity: float = 0.27
     search_result_limit: int = 20
 
     # Document summaries (app/worker.py).
