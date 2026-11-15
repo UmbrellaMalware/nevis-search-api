@@ -21,6 +21,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import ClientNotFoundError
 from app.models import Client
 from app.repositories.clients import ClientRepository
 from app.repositories.documents import DocumentMatch, DocumentRepository
@@ -50,17 +51,32 @@ async def search(
     *,
     min_similarity: float,
     limit: int,
+    client_id: uuid.UUID | None = None,
 ) -> list[SearchResult]:
-    """Search clients and documents; return one list, best match first (at most `limit`)."""
+    """Search clients and documents; return one list, best match first (at most `limit`).
+
+    With `client_id`, search only that client's documents: the client is already known, so the
+    client retrievers are skipped. Raises ClientNotFoundError for an unknown client.
+    """
+    if client_id is not None and not await ClientRepository(session).exists(client_id):
+        raise ClientNotFoundError(client_id)
     query = query.strip()
     synonyms, vectors = await _expand_and_embed(session, embedder, query)
 
-    ranked_lists: list[_RankedList] = [
-        *await _rank_clients(session, query, vectors, min_similarity=min_similarity, limit=limit),
-        *await _rank_documents(
-            session, query, synonyms, vectors, min_similarity=min_similarity, limit=limit
-        ),
-    ]
+    ranked_lists: list[_RankedList] = []
+    if client_id is None:
+        ranked_lists += await _rank_clients(
+            session, query, vectors, min_similarity=min_similarity, limit=limit
+        )
+    ranked_lists += await _rank_documents(
+        session,
+        query,
+        synonyms,
+        vectors,
+        min_similarity=min_similarity,
+        limit=limit,
+        client_id=client_id,
+    )
     fused = reciprocal_rank_fusion(ranked_lists, key=_identity)
     return [_to_result(entry) for entry in fused[:limit]]
 
@@ -110,6 +126,7 @@ async def _rank_documents(
     *,
     min_similarity: float,
     limit: int,
+    client_id: uuid.UUID | None,
 ) -> list[tuple[MatchType, list[DocumentMatch]]]:
     """Run the document retrievers; return each one's matches, best match first.
 
@@ -117,8 +134,8 @@ async def _rank_documents(
     closest in meaning rather than the one that merely shares words.
     """
     documents = DocumentRepository(session)
-    semantic = await documents.search_semantic(vectors, min_similarity, limit)
-    full_text = await documents.search_full_text(query, synonyms, limit)
+    semantic = await documents.search_semantic(vectors, min_similarity, limit, client_id)
+    full_text = await documents.search_full_text(query, synonyms, limit, client_id)
     return [(MatchType.SEMANTIC, semantic), (MatchType.FULL_TEXT, full_text)]
 
 

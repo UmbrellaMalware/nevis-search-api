@@ -166,6 +166,17 @@ the "Share purchase agreement" that contains this IBAN, with `"matched_by": ["fu
 
 **Nothing relevant returns an empty list:** `q=weather forecast` -> `[]`.
 
+**Search one client's documents** with `client_id`. Only that client's documents are returned
+(no client hits); an unknown `client_id` gives `404`:
+
+```bash
+curl -G "$API/search" -H "X-API-Key: $KEY" --data-urlencode "q=address proof" \
+  --data-urlencode "client_id=01a1cec7-c6c4-73e6-b609-ea784ee01037"
+```
+
+This returns only John Doe's "Utility bill" from the example above, without Anna Schmidt's
+"Council tax bill".
+
 ### Summarise a document
 
 Summaries are made on request. Ask for one, then poll until it is `ready` (usually a few

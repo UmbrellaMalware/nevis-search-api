@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import ColumnElement, Text, func, literal, select, text
+from sqlalchemy import ColumnElement, Select, Text, func, literal, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -78,20 +78,35 @@ class DocumentRepository:
         return document
 
     async def search_semantic(
-        self, vectors: Sequence[list[float]], min_similarity: float, limit: int
+        self,
+        vectors: Sequence[list[float]],
+        min_similarity: float,
+        limit: int,
+        client_id: uuid.UUID | None = None,
     ) -> list[DocumentMatch]:
-        """Documents whose best chunk is close to any query vector (max similarity wins)."""
+        """Documents whose best chunk is close to any query vector (max similarity wins).
+
+        With `client_id`, only that client's documents.
+        """
         # shortcut: one long document (up to ~120 chunks) can fill all candidates and hide other
         # documents; fetch more chunks until enough documents are found when that bites.
         candidates = limit * 5  # several chunks may belong to the same document
         # HNSW returns at most ef_search rows; make sure it can serve all candidates.
         await self._session.execute(text(f"SET LOCAL hnsw.ef_search = {int(candidates)}"))
+        if client_id is not None:
+            # The index finds the nearest chunks of all clients first and only then drops the
+            # other clients' ones, which could leave nothing. Iterative scan keeps searching the
+            # index until enough chunks of this client are found, still nearest first.
+            await self._session.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
 
         best: BestScores[uuid.UUID, str] = BestScores()  # document id -> best chunk's content
         for vector in vectors:
             distance = DocumentSearchChunk.embedding.cosine_distance(vector)
             rows = await self._session.execute(
-                select(DocumentSearchChunk.document_id, DocumentSearchChunk.content, distance)
+                _of_client(
+                    select(DocumentSearchChunk.document_id, DocumentSearchChunk.content, distance),
+                    client_id,
+                )
                 .order_by(distance)
                 .limit(candidates)
             )
@@ -103,9 +118,16 @@ class DocumentRepository:
         return await self._load(best.top(limit))
 
     async def search_full_text(
-        self, query: str, phrases: Sequence[str], limit: int
+        self,
+        query: str,
+        phrases: Sequence[str],
+        limit: int,
+        client_id: uuid.UUID | None = None,
     ) -> list[DocumentMatch]:
-        """Postgres full-text match of the query (web-search syntax) OR any expansion phrase."""
+        """Postgres full-text match of the query (web-search syntax) OR any expansion phrase.
+
+        With `client_id`, only that client's documents.
+        """
         tsquery: ColumnElement[Any] = func.websearch_to_tsquery(FTS_CONFIG, literal(query, Text))
         for phrase in phrases:
             tsquery = tsquery.op("||")(func.phraseto_tsquery(FTS_CONFIG, literal(phrase, Text)))
@@ -114,7 +136,10 @@ class DocumentRepository:
         rank = func.ts_rank_cd(DocumentSearchChunk.search_tsv, tsquery)
 
         rows = await self._session.execute(
-            select(DocumentSearchChunk.document_id, DocumentSearchChunk.content, rank)
+            _of_client(
+                select(DocumentSearchChunk.document_id, DocumentSearchChunk.content, rank),
+                client_id,
+            )
             .where(DocumentSearchChunk.search_tsv.op("@@")(tsquery))
             .order_by(rank.desc())
             # shortcut: same limit and same crowding problem as search_semantic.
@@ -143,3 +168,12 @@ class DocumentRepository:
             for doc_id, snippet, score in top
             if doc_id in by_id
         ]
+
+
+def _of_client[S: Select[Any]](chunks: S, client_id: uuid.UUID | None) -> S:
+    """Limit a query over search chunks to one client's documents; `None` leaves it as is."""
+    if client_id is None:
+        return chunks
+    return chunks.join(Document, Document.id == DocumentSearchChunk.document_id).where(
+        Document.client_id == client_id
+    )

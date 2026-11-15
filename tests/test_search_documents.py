@@ -1,5 +1,9 @@
 """/search finding documents: by meaning (with the glossary) and by exact terms."""
 
+import uuid
+
+from httpx import AsyncClient
+
 from tests.helpers import Search, titles
 
 
@@ -42,3 +46,38 @@ async def test_document_found_by_two_retrievers_appears_once(
 
     assert len(utility) == 1
     assert set(utility[0]["matched_by"]) == {"semantic", "full_text"}
+
+
+async def test_client_id_limits_search_to_that_clients_documents(
+    client: AsyncClient, corpus: dict[str, str]
+) -> None:
+    maria = corpus["maria@example.org"]
+    response = await client.post(
+        f"/clients/{maria}/documents",
+        json={"title": "Gas bill", "content": "Gas utility bill for April 2026, 3 Elm Road."},
+    )
+    assert response.status_code == 201
+
+    response = await client.get("/search", params={"q": "utility bill", "client_id": maria})
+
+    assert response.status_code == 200
+    hits = response.json()
+    assert titles(hits) == ["Gas bill"]
+    assert all(h["type"] == "document" for h in hits)  # no client hits when filtering
+
+
+async def test_client_id_without_matching_documents_returns_empty(
+    client: AsyncClient, corpus: dict[str, str]
+) -> None:
+    maria = corpus["maria@example.org"]
+
+    response = await client.get("/search", params={"q": "utility bill", "client_id": maria})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_unknown_client_id_returns_404(client: AsyncClient) -> None:
+    response = await client.get("/search", params={"q": "bill", "client_id": str(uuid.uuid7())})
+
+    assert response.status_code == 404
