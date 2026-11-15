@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Bake the embedding model into the image: no download at startup, works offline.
 # Keep in sync with the defaults in app/config.py (the ENV below makes the app use exactly this).
 ARG EMBEDDING_MODEL=UmbrellaMalware/all-MiniLM-L6-v2-wealth
-ARG EMBEDDING_MODEL_REVISION=68e3018b96bc14bb1aed8ecd0623688123f0e41d
+ARG EMBEDDING_MODEL_REVISION=168226dd97d0681043f6cd516ed4ff231a13b2df
 RUN python -c "import sys; from sentence_transformers import SentenceTransformer; \
 SentenceTransformer(sys.argv[1], revision=sys.argv[2])" \
     "$EMBEDDING_MODEL" "$EMBEDDING_MODEL_REVISION"
