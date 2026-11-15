@@ -219,48 +219,6 @@ Requesting a ready summary again returns it with `200` and makes no new LLM call
 | `409` | email already used, or the same document already uploaded for the client | `{"detail": "..."}` |
 | `422` | invalid input: bad email, blank or too long query, document over 100,000 characters | `{"detail": ...}` |
 
-## Design notes
-
-- **Document indexing is synchronous.** `POST /clients/{id}/documents` splits the content into
-  overlapping chunks and embeds them before returning `201`, so the document is searchable
-  immediately, which is what the API contract implies.
-- **Document size is capped at 100,000 characters** (~15k words, ~120 chunks). The spec sets no
-  limit, but because embeddings are computed inside the request on a small CPU-only server, an
-  unbounded document could hold the CPU for a long time and stall every other request. At this
-  size indexing takes a couple of seconds, which comfortably covers statements, contracts and
-  bills. Larger documents get `422`.
-- **Summaries are made on request.** `POST /documents/{id}/summary` queues one (`202`), then the
-  client polls `GET /documents/{id}/summary` until `status` is `ready` or `failed`. A separate
-  `worker` service (`python -m app.worker`) generates them with OpenAI `gpt-4.1-mini`, using
-  Postgres as its job queue. Search results include the summary once it is ready.
-  **Note: the document title and content are sent to OpenAI** to make the summary. Nothing is
-  sent until someone asks for a summary of that document.
-- **Document content lives in Postgres.** The API accepts plain text, which Postgres stores
-  efficiently (TOAST), and keeping it next to its chunks means a document and its embeddings
-  are written in a single transaction.
-
-### What I would change for production and scalability
-
-The choices above keep the assignment simple and match the given API contract. In a real
-deployment I would:
-
-- **Store documents in object storage (S3).** Originals (PDFs, scans) and their raw text go to
-  S3; the database keeps only the object key and metadata, plus the extracted chunks and
-  embeddings needed for search.
-- **Index documents through a queue.** The upload endpoint would store the document and return
-  `202 Accepted` with an indexing status; workers would fetch the content from S3, chunk and
-  embed it in the background. This removes model latency from the request path and lifts the
-  document size limit, since large files can be processed (and streamed) asynchronously.
-- **Summarise with a self-hosted open-source model.** Client documents are sensitive, so instead
-  of sending them to OpenAI I would run an open-source LLM on our own GPU server. The documents
-  never leave our infrastructure, and the worker only needs a different `Summarizer`.
-- **Consider OpenAI file search as an extra retriever, not a replacement.** On the test set it
-  beats our model on one-word queries and general finance, but is clearly worse on KYC concepts
-  (see "Step 6" below). Added as one more ranked list in the fusion, behind a query parameter, it
-  could cover our model's weak spots; it would need documents uploaded to a vector store on
-  creation, and sends client documents to OpenAI, so it is a product decision as much as a
-  technical one.
-
 ## How search works
 
 `GET /search?q=...` returns one list of clients and documents ranked by relevance. Four
