@@ -20,11 +20,10 @@ migrate: ## Apply all migrations
 # Next sequential revision id: 0005 -> 0006.
 NEXT_REV = $(shell ls migrations/versions | grep -oE '^[0-9]+' | sort -n | tail -1 | awk '{printf "%04d", $$1 + 1}')
 
-# Empty on purpose, no --autogenerate: indexes and constraints live only in migrations, not in
-# app/models.py, so autogenerate would try to drop every one of them.
-migration: ## New empty migration: make migration NAME="add client tags"
+# Autogenerate sees tables and columns; indexes are written by hand (see migrations/env.py).
+migration: ## New migration from model changes: make migration NAME="add client tags" (review it!)
 	@test -n "$(NAME)" || (echo 'usage: make migration NAME="short description"' && exit 1)
-	uv run alembic revision --rev-id $(NEXT_REV) -m "$(NAME)"
+	uv run alembic revision --autogenerate --rev-id $(NEXT_REV) -m "$(NAME)"
 
 downgrade: ## Roll back the last migration
 	uv run alembic downgrade -1
