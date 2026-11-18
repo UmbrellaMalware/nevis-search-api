@@ -16,6 +16,9 @@ from app.repositories.synonyms import SynonymRepository
 from tests.helpers import Hits, Search
 
 ROOT = Path(__file__).resolve().parent.parent
+# Tests must not depend on a developer's .env (API_KEY there would turn auth on for every test).
+# Set at import, so the session-scoped migrations (migrations/env.py) are covered too.
+Settings.model_config["env_file"] = None
 # Captured once: some tests point the app at a broken URL, cleanup must still hit the real DB.
 TEST_DATABASE_URL = os.environ.get("DATABASE_URL", Settings().database_url)
 
@@ -27,7 +30,10 @@ def _migrated_database() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_settings() -> None:
+def _fresh_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Keys from the shell don't leak in either; tests that need one set it (see `api_key`).
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # Settings are cached; tests that change env vars need a clean read.
     get_settings.cache_clear()
 
