@@ -19,8 +19,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # Tests must not depend on a developer's .env (API_KEY there would turn auth on for every test).
 # Set at import, so the session-scoped migrations (migrations/env.py) are covered too.
 Settings.model_config["env_file"] = None
+# Default to the local test DB, never the app default (the dev DB): tests TRUNCATE tables.
+# Matters when pytest is run without DATABASE_URL, e.g. from the editor.
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5436/test")
 # Captured once: some tests point the app at a broken URL, cleanup must still hit the real DB.
-TEST_DATABASE_URL = os.environ.get("DATABASE_URL", Settings().database_url)
+TEST_DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 @pytest.fixture(scope="session", autouse=True)
